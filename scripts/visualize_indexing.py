@@ -5,14 +5,14 @@ from ngp_nerf import hashing
 
 
 def main():
-    T = 512
-    res_range = torch.arange(128)
+    T = 4096
+    res_range = torch.arange(32)
     index_coords = torch.stack(
         torch.meshgrid([res_range] * 2, indexing="ij"), -1
     ).long()
 
     # uniform distribution of hash values desired
-    indices = hashing.xor_index_hashing(index_coords, T)
+    indices = hashing.ravel_index(index_coords, (32, 32), T)
     plt.bar(*np.unique(indices, return_counts=True))
     plt.show()
 

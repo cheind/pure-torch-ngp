@@ -4,7 +4,7 @@ from ngp_nerf.encoding import MultiLevelHashEncoding
 
 def test_encoding_output_shape_3d():
     mlh = MultiLevelHashEncoding(
-        n_encodings=2**14,
+        n_encodings=2**16,
         n_input_dims=3,
         n_embed_dims=2,
         n_levels=4,
@@ -40,14 +40,18 @@ def test_encoding_gradients():
         max_res=64,
     )
     # Set all embeddings to one
-    mlh.embmatrix.data.copy_(torch.ones_like(mlh.embmatrix) * 2)
+    mlh.embmatrix.data.copy_(torch.ones_like(mlh.embmatrix) * 1)
 
-    f = mlh(torch.tensor([[0.125, 0.125]]))
+    f = mlh(torch.tensor([[0.31231, 0.7312]]))
     loss = f.square().sum()
     loss.backward()
     # If there isn't a collison, we should get 4 embedding vectors to receive
-    # gradient of 1.0 per level
-    assert (mlh.embmatrix.grad[..., 0] > 0.0).sum().int() == 4
-    assert (mlh.embmatrix.grad[..., 1] > 0.0).sum().int() == 4
-    assert (mlh.embmatrix.grad[..., 2] > 0.0).sum().int() == 4
-    assert (mlh.embmatrix.grad[..., 3] > 0.0).sum().int() == 4
+    # gradient (scaled by the weights of the bilinear interpolation). Note, the
+    # coordinate above is chosen, so that on no level it falls exactly one a grid
+    # point
+    # mask = mlh.embmatrix.grad[..., 1] != 0.0
+    # print(mlh.embmatrix.grad[..., 1][mask])
+    assert (mlh.embmatrix.grad[..., 0] != 0.0).sum().int() == 4
+    assert (mlh.embmatrix.grad[..., 1] != 0.0).sum().int() == 4
+    assert (mlh.embmatrix.grad[..., 2] != 0.0).sum().int() == 4
+    assert (mlh.embmatrix.grad[..., 3] != 0.0).sum().int() == 4

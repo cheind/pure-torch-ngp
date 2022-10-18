@@ -14,8 +14,7 @@ class MultiLevelHashEncoding(torch.nn.Module):
     This implementation uses a global encoding matrix and equal number
     of encoding vectors for each resolution level. The module employs the
     proposed hashing method to identify the indices of (potentially shared)
-    encoding vectors for each grid vertex (hashing is used for resolutions that
-    could use a direct mapping too). The grids (called levelmaps) are
+    encoding vectors for each grid vertex. The grids (called levelmaps) are
     treated as images/volumes and can be pre-computed. The query
     locations are reshaped into a grid format compatible with `F.grid_sample`
     to interpolate the encodings.
@@ -58,26 +57,44 @@ class MultiLevelHashEncoding(torch.nn.Module):
         self.min_res = min_res
         self.max_res = max_res
 
-        resolutions = torch.ceil(
-            torch.exp(
-                torch.linspace(
-                    torch.log(torch.tensor(self.min_res)),
-                    torch.log(torch.tensor(self.max_res)),
-                    self.n_levels,
-                )
-            )
-        ).int()
         with torch.no_grad():
-            for level, res in enumerate(resolutions):
-                # For each resolution R, we form a (E,R,R,R) levelmap whose vertices
-                # contain a view of the global embedding vectors in first dimension.
-                # The encoding vector indices are computed by hashing the spatial
-                # grid location. We precompute the encoding vector indices here.
-                res_range = torch.arange(res)
-                index_coords = torch.stack(
-                    torch.meshgrid([res_range] * self.n_input_dims, indexing="ij"), -1
+            # Equation 2 and 3 in the paper to determine the number of grid vertices
+            # per resolution level
+            growth_factor = torch.exp(
+                (
+                    torch.log(torch.tensor(self.max_res))
+                    - torch.log(torch.tensor(self.min_res))
                 )
-                indices = hashing.xor_index_hashing(index_coords, self.n_encodings)
+                / (self.n_levels - 1)
+            )
+            resolutions = torch.floor(
+                torch.tensor(
+                    [
+                        self.min_res * growth_factor**level
+                        for level in range(self.n_levels)
+                    ]
+                )
+            ).long()
+            print(resolutions)
+            # For each resolution R, we form a (E,R,R,R) levelmap whose vertices
+            # contain a view of the global embedding vectors in first dimension.
+            # The encoding vector indices are computed by hashing the spatial
+            # grid location. We precompute the encoding vector indices here.
+            for level, res in enumerate(resolutions):
+                index_coords = torch.stack(
+                    torch.meshgrid(
+                        [torch.arange(res)] * self.n_input_dims, indexing="ij"
+                    ),
+                    -1,
+                )
+                if res**self.n_input_dims < self.n_encodings:
+                    res_shape = [res] * self.n_input_dims
+                    indices = hashing.ravel_index(
+                        index_coords, res_shape, self.n_encodings
+                    )
+                    print(len(torch.unique(indices)))
+                else:
+                    indices = hashing.xor_index_hashing(index_coords, self.n_encodings)
                 self.register_buffer("level_embedding_indices" + str(level), indices)
 
     def forward(self, x):
