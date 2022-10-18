@@ -2,6 +2,8 @@ import torch
 import torch.nn
 import torch.nn.functional as F
 
+from . import hashing
+
 
 class MultiLevelHashEncoding(torch.nn.Module):
     """Multi Resolution Hash Encoding module.
@@ -65,40 +67,18 @@ class MultiLevelHashEncoding(torch.nn.Module):
                 )
             )
         ).int()
-        for level, res in enumerate(resolutions):
-            # Foe each resolution R, we form a (E,R,R,R) levelmap whose vertices
-            # contain a view of the global embedding vectors in first dimension.
-            # The encoding vector indices are computed by hashing the spatial
-            # grid location. We precompute the encoding vector indices here.
-            xyz_int = self._levelmap_embedding_indices(res)
-            self.register_buffer("level_embedding_indices" + str(level), xyz_int)
-
-    @torch.no_grad()
-    def _levelmap_embedding_indices(self, res: int) -> torch.LongTensor:
-        """Returns the embedding indices for each vertex in a grid of given resolution.
-
-        Params:
-            res: Grid resolution in each direction
-
-        Returns:
-            indices: (R,R) or (R,R,R) tensor of embedding indices
-                in range [0, n_encodings).
-        """
-        # TODO: don't hash if res**self.n_input_dims < self.n_encodings
-
-        res_range = torch.arange(res)
-        # Grid vertex locations
-        xyz = torch.meshgrid([res_range] * self.n_input_dims, indexing="ij")
-        # Hash locations to encoding vector index. Based on the paper.
-        pis = torch.tensor([1, 2654435761, 805459861])[: self.n_input_dims]
-        pis = pis.view(*([1] * self.n_input_dims), self.n_input_dims)
-        xyz = torch.stack(xyz, -1)
-        xyz_pi_int = (xyz * pis).long()
-        xyz_int = xyz_pi_int[..., 0]
-        for d in range(1, self.n_input_dims):
-            xyz_int = torch.bitwise_xor(xyz_int, xyz_pi_int[..., d]) % self.n_encodings
-
-        return xyz_int
+        with torch.no_grad():
+            for level, res in enumerate(resolutions):
+                # For each resolution R, we form a (E,R,R,R) levelmap whose vertices
+                # contain a view of the global embedding vectors in first dimension.
+                # The encoding vector indices are computed by hashing the spatial
+                # grid location. We precompute the encoding vector indices here.
+                res_range = torch.arange(res)
+                index_coords = torch.stack(
+                    torch.meshgrid([res_range] * self.n_input_dims, indexing="ij"), -1
+                )
+                indices = hashing.xor_index_hashing(index_coords, self.n_encodings)
+                self.register_buffer("level_embedding_indices" + str(level), indices)
 
     def forward(self, x):
         """Returns the multi-resolutional feature emebeddings for all query locations.
