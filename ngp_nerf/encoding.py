@@ -4,6 +4,24 @@ import torch.nn.functional as F
 
 
 class MultiLevelHashEncoding(torch.nn.Module):
+    """Multi Resolution Hash Encoding module.
+
+    Encodes 2D/3D query locations by extracting bilinear interpolated
+    encoding vectors from varying grid resolutions.
+
+    This implementation uses a global encoding matrix and equal number
+    of encoding vectors for each resolution level. The module employs the
+    proposed hashing method to identify the indices of (potentially shared)
+    encoding vectors for each grid vertex (hashing is used for resolutions that
+    could use a direct mapping too). The grids (called levelmaps) are
+    treated as images/volumes and can be pre-computed. The query
+    locations are reshaped into a grid format compatible with `F.grid_sample`
+    to interpolate the encodings.
+
+    Based on
+    https://nvlabs.github.io/instant-ngp/assets/mueller2022instant.pdf
+    """
+
     def __init__(
         self,
         n_encodings: int = 2**14,
@@ -13,6 +31,16 @@ class MultiLevelHashEncoding(torch.nn.Module):
         min_res: int = 16,
         max_res: int = 512,
     ) -> None:
+        """Initialize the module.
+
+        Params:
+            n_encodings: Number of encoding vectors per resolution level
+            n_input_dims: Number of query dimensions (2 or 3).
+            n_embed_dims: Number of embedding dimensions.
+            n_levels: Number of levels to generate
+            min_res: Lowest grid resolution (isotropic in each dimension)
+            max_res: Highest grid resolution (isotropic in each dimension)
+        """
         super().__init__()
 
         assert n_input_dims in [2, 3], "Only 2D and 3D inputs are supported"
@@ -23,6 +51,7 @@ class MultiLevelHashEncoding(torch.nn.Module):
 
         self.n_levels = n_levels
         self.n_input_dims = n_input_dims
+        self.n_embed_dims = n_embed_dims
         self.n_encodings = n_encodings
         self.min_res = min_res
         self.max_res = max_res
@@ -36,12 +65,12 @@ class MultiLevelHashEncoding(torch.nn.Module):
                 )
             )
         ).int()
-        print("Pregenerating data")
         for level, res in enumerate(resolutions):
-            # At each resolution R, we form a (E,R,R,R) levelmap whose vertices
-            # contain the embedding vectors given by the corresponding hashed
-            # index from position.
-            xyz_int = self._levelmap_embedding_indices(res)  # (R,R,R)
+            # Foe each resolution R, we form a (E,R,R,R) levelmap whose vertices
+            # contain a view of the global embedding vectors in first dimension.
+            # The encoding vector indices are computed by hashing the spatial
+            # grid location. We precompute the encoding vector indices here.
+            xyz_int = self._levelmap_embedding_indices(res)
             self.register_buffer("level_embedding_indices" + str(level), xyz_int)
 
     @torch.no_grad()
@@ -52,13 +81,15 @@ class MultiLevelHashEncoding(torch.nn.Module):
             res: Grid resolution in each direction
 
         Returns:
-            indices: (R,R) or (R,R,R) tensor of embedding indices in range [0,n_encodings]
+            indices: (R,R) or (R,R,R) tensor of embedding indices
+                in range [0, n_encodings).
         """
-        res_range = torch.arange(res)
-        xyz = torch.meshgrid([res_range] * self.n_input_dims, indexing="ij")
-
         # TODO: don't hash if res**self.n_input_dims < self.n_encodings
 
+        res_range = torch.arange(res)
+        # Grid vertex locations
+        xyz = torch.meshgrid([res_range] * self.n_input_dims, indexing="ij")
+        # Hash locations to encoding vector index. Based on the paper.
         pis = torch.tensor([1, 2654435761, 805459861])[: self.n_input_dims]
         pis = pis.view(*([1] * self.n_input_dims), self.n_input_dims)
         xyz = torch.stack(xyz, -1)
@@ -66,10 +97,6 @@ class MultiLevelHashEncoding(torch.nn.Module):
         xyz_int = xyz_pi_int[..., 0]
         for d in range(1, self.n_input_dims):
             xyz_int = torch.bitwise_xor(xyz_int, xyz_pi_int[..., d]) % self.n_encodings
-
-        u = torch.unique(xyz_int)
-        print(u.numel(), xyz_int.numel())
-        print(f"res {res} collisions:", (xyz_int.numel() - u.numel()) / xyz_int.numel())
 
         return xyz_int
 
@@ -84,13 +111,17 @@ class MultiLevelHashEncoding(torch.nn.Module):
                 for each query (B) and level (L).
         """
         B, D = x.shape
+        # Note, we re-interpret the query locations as a sampling grid by
+        # by shuffling the batch dimension into the first image dimension.
+        # Turned out to be faster (many times on cpu) than using expand.
         x = x.view(1, B, *([1] * (D - 1)), D)  # (1,B,1,2) or (1,B,1,1,3)
         features = []
         for level in range(self.n_levels):
             indices = getattr(self, "level_embedding_indices" + str(level))
-            # Note for myself: don't store the following as a buffer. it won't work.
-
+            # Note for myself: don't store the following as a buffer, it won't work.
+            # We need to perform the indexing on-line.
             levelmap = self.embmatrix[:, indices, level].unsqueeze(0)
+            # Bilinearly interpolate the sampling locations using the levelmap.
             f = F.grid_sample(
                 levelmap,
                 x,
@@ -98,7 +129,8 @@ class MultiLevelHashEncoding(torch.nn.Module):
                 padding_mode="zeros",
                 align_corners=False,
             )  # (1,E,B,1) or (1,E,B,1,1)
-            features.append(f.view(self.embmatrix.shape[0], B).permute(1, 0))
+            # Shuffle back into (B,E) tensor
+            features.append(f.view(self.n_embed_dims, B).permute(1, 0))
         f = torch.stack(features, 1)
         return f
 
