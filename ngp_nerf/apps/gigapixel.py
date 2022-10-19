@@ -97,7 +97,7 @@ def main():
         "--num-epochs", type=int, help="Number of image epochs", default=100
     )
     parser.add_argument(
-        "--batch-size", type=int, help="Locations per batch", default=2**18
+        "--batch-size", type=int, help="Locations per batch", default=2**17
     )
     parser.add_argument("--lr", type=float, help="Initial learning rate", default=1e-2)
     parser.add_argument(
@@ -155,14 +155,14 @@ def main():
         eps=1e-15,
         lr=args.lr,
     )
-    sched = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        opt, mode="max", patience=40, factor=0.5, min_lr=1e-5, threshold=0.1
-    )
 
     # Estimation of total steps such that each pixel is selected num_epochs
     # times.
     n_steps_per_epoch = max(n_pixels // args.batch_size, 1)
-    n_steps = args.num_epochs * n_steps_per_epoch
+    n_steps = int(args.num_epochs * n_steps_per_epoch)
+
+    # Using superconvergence (deviates from the paper)
+    sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=5e-2, total_steps=n_steps)
 
     # Train
     pbar = tqdm(range(n_steps), mininterval=0.1)
@@ -179,14 +179,15 @@ def main():
             loss = F.mse_loss(x_colors, batch_colors.permute(1, 0))
             loss.backward()
             opt.step()
+            sched.step()
             pbar_postfix["loss"] = loss.item()
             pbar.set_postfix(**pbar_postfix, refresh=False)
             pbar.update()
         recimg = render_image(net, ncoords, nimg.shape, mean, std, args.batch_size)
         psnr, _ = metrics.peak_signal_noise_ratio(
-            img.unsqueeze(0), recimg.unsqueeze(0), 1.0
+            img.unsqueeze(0), recimg.unsqueeze(0), 2.0
         )
-        sched.step(psnr.mean().item())
+        # sched.step(psnr.mean().item())
         pbar_postfix["lr"] = max(sched._last_lr)
         pbar_postfix["psnr[dB]"] = psnr.mean().item()
 
