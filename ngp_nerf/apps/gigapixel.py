@@ -132,7 +132,7 @@ def main():
     net = CompressionModule(
         n_out=img.shape[0],
         n_hidden=args.num_hidden,
-        n_encodings=int(args.num_encodings),
+        n_encodings=args.num_encodings,
         n_levels=16,
         min_res=16,
         max_res=max(img.shape[2:]) // 2,
