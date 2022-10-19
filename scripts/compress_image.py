@@ -58,21 +58,6 @@ def compute_dof_rate(model, img):
 
 
 @torch.no_grad()
-def render_image(net, ncoords, image_shape, mean, std, n_samples=2) -> torch.Tensor:
-    C, H, W = image_shape
-    ncoords = ncoords.reshape(-1, 2)
-    sampling_std = 2.0 / max(H, W) / 2
-    colors = net(ncoords)
-    for _ in range(1, n_samples):
-        cnext = net(ncoords + torch.randn_like(ncoords) * sampling_std)
-        colors += cnext
-    colors /= n_samples
-    colors = colors.view((H, W, C)).permute(2, 0, 1)
-    colors = torch.clip(colors * std + mean, 0, 1)
-    return colors
-
-
-@torch.no_grad()
 def render_image(net, ncoords, image_shape, mean, std, batch_size) -> torch.Tensor:
     C, H, W = image_shape
     parts = []
@@ -87,19 +72,19 @@ def render_image(net, ncoords, image_shape, mean, std, batch_size) -> torch.Tens
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--num-epochs", type=int, help="Visits per pixel in training", default=200
+        "--num-epochs", type=int, help="Number of image epochs", default=100
     )
     parser.add_argument(
-        "--batch-size", type=int, help="Pixels per batch", default=2**18
+        "--batch-size", type=int, help="Locations per batch", default=2**18
     )
     parser.add_argument("--lr", type=float, help="Initial learning rate", default=1e-2)
     parser.add_argument(
         "--num-hidden", type=int, help="Number of hidden units", default=64
     )
     parser.add_argument(
-        "--num-encodings",
+        "--num-encodings-exp",
         type=int,
-        help="Maximum number of encodings per resolution",
+        help="Exponent of number of encodings = 2**this",
         default=2**16,
     )
     parser.add_argument("image", help="Image to compress")
@@ -129,7 +114,7 @@ def main():
     net = CompressionModule(
         n_out=img.shape[0],
         n_hidden=args.num_hidden,
-        n_encodings=args.num_encodings,
+        n_encodings=2**args.num_encodings_exp,
         n_levels=16,
         min_res=16,
         max_res=max(img.shape[2:]) // 2,
@@ -148,12 +133,8 @@ def main():
         lr=args.lr,
     )
     sched = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        opt, mode="max", patience=4, factor=0.1, min_lr=1e-5, threshold=0.1
+        opt, mode="max", patience=20, factor=0.1, min_lr=1e-5, threshold=0.1
     )
-
-    # Estimation of selection probability per pixel
-    sel_prob = min(args.batch_size / np.prod(img.shape[1:]), 1)
-    a = img.new_ones(img.shape[1:]) * sel_prob
 
     # Estimation of total steps such that each pixel is selected num_epochs
     # times.
@@ -163,33 +144,34 @@ def main():
     # Train
     pbar = tqdm(range(n_steps), mininterval=0.1)
     pbar_postfix = {"loss": 0.0}
-    for step in pbar:
-        mask = torch.bernoulli(a).bool()
-        x_colors = nimg[:, mask]
-        x_ncoords = ncoords[mask]
-        y_colors = net(x_ncoords)
-        opt.zero_grad()
-        loss = F.mse_loss(y_colors, x_colors.permute(1, 0))
-        loss.backward()
-        opt.step()
+    ncoords_flat = ncoords.reshape(-1, 2)
+    nimg_flat = nimg.view(nimg.shape[0], -1)
+    for epoch in range(args.num_epochs):
+        ids = torch.randperm(ncoords_flat.shape[0], device=ncoords_flat.device)
+        for batch in ids.split(args.batch_size):
+            batch_ncoords = ncoords_flat[batch]
+            batch_colors = nimg_flat[:, batch]
+            x_colors = net(batch_ncoords)
+            opt.zero_grad()
+            loss = F.mse_loss(x_colors, batch_colors.permute(1, 0))
+            loss.backward()
+            opt.step()
+            pbar_postfix["loss"] = loss.item()
+            pbar.set_postfix(**pbar_postfix, refresh=False)
+            pbar.update()
+        recimg = render_image(net, ncoords, nimg.shape, mean, std, args.batch_size)
+        psnr, _ = metrics.peak_signal_noise_ratio(
+            img.unsqueeze(0), recimg.unsqueeze(0), 1.0
+        )
+        sched.step(psnr.mean().item())
+        pbar_postfix["lr"] = max(sched._last_lr)
+        pbar_postfix["psnr[dB]"] = psnr.mean().item()
 
-        pbar_postfix["loss"] = loss.item()
-        if step % 250 == 0:
-            recimg = render_image(net, ncoords, nimg.shape, mean, std, args.batch_size)
-            psnr, _ = metrics.peak_signal_noise_ratio(
-                img.unsqueeze(0), recimg.unsqueeze(0), 1.0
+        if epoch % 20 == 0:
+            recimg = recimg.permute(1, 2, 0).cpu() * 255
+            Image.fromarray(recimg.to(torch.uint8).numpy()).save(
+                f"tmp/out_{epoch:04d}.png"
             )
-            sched.step(psnr.mean().item())
-            pbar_postfix["lr"] = max(sched._last_lr)
-            pbar_postfix["psnr[dB]"] = psnr.mean().item()
-
-            if step % 1000 == 0:
-                recimg = recimg.permute(1, 2, 0).cpu() * 255
-                Image.fromarray(recimg.to(torch.uint8).numpy()).save(
-                    f"tmp/out_{step:04d}.png"
-                )
-        pbar.set_postfix(**pbar_postfix, refresh=False)
-        pbar.update()
 
     imgrec = render_image(net, ncoords, nimg.shape, mean, std, args.batch_size)
     err = (imgrec - img).abs().sum(0)
