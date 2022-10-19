@@ -4,7 +4,7 @@ import torch
 def generate_grid_coords(
     shape: tuple[int, ...], indexing: str = "xy"
 ) -> torch.LongTensor:
-
+    # TODO reconsider by inversing ranges when 'xy'
     ranges = [torch.arange(r) for r in shape]
     coords = torch.stack(torch.meshgrid(*ranges, indexing="ij"), -1)
     if indexing == "xy":
