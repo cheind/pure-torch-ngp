@@ -79,7 +79,8 @@ def main():
         min_res=8,
         max_res=max(img.shape[:2]),
     ).cuda()
-    print(f"Compression factor: {compute_compression(net, img):.2f}x")
+    cf = compute_compression(net, img)
+    print(f"Compression factor: {cf:.2f}x")
 
     coords = pixels.generate_grid_coords(img.shape[1:], indexing="xy").cuda()
     ncoords = pixels.normalize_coords(coords, indexing="xy").cuda()
@@ -103,6 +104,7 @@ def main():
         y_colors = net(ncoords.reshape(-1, 2))
         err = (y_colors.view((H, W, 3)) - img.permute(1, 2, 0)).abs().sum(-1)
     fig, axs = plt.subplots(1, 3, figsize=(16, 9), sharex=True, sharey=True)
+    fig.suptitle(f"Nerf2D compression={cf:.2f}")
     axs[0].imshow(img.permute(1, 2, 0).cpu())
     axs[0].set_title("Input")
     axs[1].imshow(y_colors.view((H, W, 3)).cpu())
