@@ -180,7 +180,7 @@ def main():
             pbar.update()
         recimg = render_image(net, ncoords, nimg.shape, mean, std, args.batch_size)
         psnr, _ = metrics.peak_signal_noise_ratio(
-            img.unsqueeze(0), recimg.unsqueeze(0), 2.0
+            img.unsqueeze(0), recimg.unsqueeze(0), 1.0
         )
         # sched.step(psnr.mean().item())
         pbar_postfix["lr"] = max(sched._last_lr)
