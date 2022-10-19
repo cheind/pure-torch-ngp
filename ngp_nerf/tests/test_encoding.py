@@ -40,7 +40,10 @@ def test_encoding_gradients():
         max_res=64,
     )
     # Set all embeddings to one
-    mlh.embmatrix.data.copy_(torch.ones_like(mlh.embmatrix) * 1)
+    mlh.level_emb_matrix0.data.copy_(torch.ones_like(mlh.level_emb_matrix0))
+    mlh.level_emb_matrix1.data.copy_(torch.ones_like(mlh.level_emb_matrix1))
+    mlh.level_emb_matrix2.data.copy_(torch.ones_like(mlh.level_emb_matrix2))
+    mlh.level_emb_matrix3.data.copy_(torch.ones_like(mlh.level_emb_matrix3))
 
     f = mlh(torch.tensor([[0.31231, 0.7312]]))
     loss = f.square().sum()
@@ -51,7 +54,7 @@ def test_encoding_gradients():
     # point
     # mask = mlh.embmatrix.grad[..., 1] != 0.0
     # print(mlh.embmatrix.grad[..., 1][mask])
-    assert (mlh.embmatrix.grad[..., 0] != 0.0).sum().int() == 4
-    assert (mlh.embmatrix.grad[..., 1] != 0.0).sum().int() == 4
-    assert (mlh.embmatrix.grad[..., 2] != 0.0).sum().int() == 4
-    assert (mlh.embmatrix.grad[..., 3] != 0.0).sum().int() == 4
+    assert (mlh.level_emb_matrix0.grad != 0.0).sum().int() == 4
+    assert (mlh.level_emb_matrix1.grad != 0.0).sum().int() == 4
+    assert (mlh.level_emb_matrix2.grad != 0.0).sum().int() == 4
+    assert (mlh.level_emb_matrix3.grad != 0.0).sum().int() == 4

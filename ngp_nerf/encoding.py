@@ -46,10 +46,6 @@ class MultiLevelHashEncoding(torch.nn.Module):
 
         assert n_input_dims in [2, 3], "Only 2D and 3D inputs are supported"
 
-        embmatrix = torch.empty(n_embed_dims, n_encodings, n_levels).uniform_(-0.5, 0.5)
-        self.register_parameter("embmatrix", torch.nn.Parameter(embmatrix))
-        self.embmatrix: torch.Tensor
-
         self.n_levels = n_levels
         self.n_input_dims = n_input_dims
         self.n_embed_dims = n_embed_dims
@@ -80,20 +76,30 @@ class MultiLevelHashEncoding(torch.nn.Module):
             # The encoding vector indices are computed by hashing the spatial
             # grid location. We precompute the encoding vector indices here.
             for level, res in enumerate(resolutions):
+                n_level_encodings = min(res**self.n_input_dims, self.n_encodings)
                 index_coords = torch.stack(
                     torch.meshgrid(
                         [torch.arange(res)] * self.n_input_dims, indexing="ij"
                     ),
                     -1,
                 )
-                if res**self.n_input_dims < self.n_encodings:
+                if res**self.n_input_dims <= n_level_encodings:
                     res_shape = [res] * self.n_input_dims
                     indices = hashing.ravel_index(
-                        index_coords, res_shape, self.n_encodings
+                        index_coords, res_shape, n_level_encodings
                     )
                 else:
-                    indices = hashing.xor_index_hashing(index_coords, self.n_encodings)
-                self.register_buffer("level_embedding_indices" + str(level), indices)
+                    indices = hashing.xor_index_hashing(index_coords, n_level_encodings)
+                self.register_buffer(
+                    "level_emb_indices" + str(level),
+                    indices,
+                )
+                self.register_parameter(
+                    "level_emb_matrix" + str(level),
+                    torch.nn.Parameter(
+                        torch.empty(n_embed_dims, n_level_encodings).uniform_(-0.5, 0.5)
+                    ),
+                )
 
     def forward(self, x):
         """Returns the multi-resolutional feature emebeddings for all query locations.
@@ -112,10 +118,11 @@ class MultiLevelHashEncoding(torch.nn.Module):
         x = x.view(1, B, *([1] * (D - 1)), D)  # (1,B,1,2) or (1,B,1,1,3)
         features = []
         for level in range(self.n_levels):
-            indices = getattr(self, "level_embedding_indices" + str(level))
+            indices = getattr(self, "level_emb_indices" + str(level))
+            embmatrix = getattr(self, "level_emb_matrix" + str(level))
             # Note for myself: don't store the following as a buffer, it won't work.
             # We need to perform the indexing on-line.
-            levelmap = self.embmatrix[:, indices, level].unsqueeze(0)
+            levelmap = embmatrix[:, indices].unsqueeze(0)
             # Bilinearly interpolate the sampling locations using the levelmap.
             f = F.grid_sample(
                 levelmap,
