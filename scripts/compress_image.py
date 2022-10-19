@@ -85,7 +85,7 @@ def main():
         "--num-encodings-exp",
         type=int,
         help="Exponent of number of encodings = 2**this",
-        default=2**16,
+        default=16,
     )
     parser.add_argument("image", help="Image to compress")
     args = parser.parse_args()
@@ -123,10 +123,10 @@ def main():
     print(f"DoFs of input: {dofs*100:.2f}%")
 
     # Setup optimizer and scheduler
-    opt = torch.optim.Adam(
+    opt = torch.optim.AdamW(
         [
             {"params": net.encoder.parameters(), "weight_decay": 0.0},
-            {"params": net.mlp.parameters(), "weight_decay": 1e-6},
+            {"params": net.mlp.parameters(), "weight_decay": 1e-7},
         ],
         betas=(0.9, 0.99),
         eps=1e-15,
