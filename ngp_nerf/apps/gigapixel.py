@@ -115,11 +115,7 @@ def main():
     dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
     # Read image
-    img = np.asarray(
-        Image.open(
-            args.image,
-        )
-    )
+    img = np.asarray(Image.open(args.image))
     img = torch.tensor(img).permute(2, 0, 1).float() / 255.0
     img = img.to(dev)
     coords = pixels.generate_grid_coords(img.shape[1:], indexing="xy").to(dev)
