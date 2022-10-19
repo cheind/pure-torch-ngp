@@ -2,7 +2,7 @@ import torch
 import torch.nn
 import torch.nn.functional as F
 
-from . import hashing
+from . import hashing, pixels
 
 
 class MultiLevelHashEncoding(torch.nn.Module):
@@ -77,11 +77,8 @@ class MultiLevelHashEncoding(torch.nn.Module):
             # grid location. We precompute the encoding vector indices here.
             for level, res in enumerate(resolutions):
                 n_level_encodings = min(res**self.n_input_dims, self.n_encodings)
-                index_coords = torch.stack(
-                    torch.meshgrid(
-                        [torch.arange(res)] * self.n_input_dims, indexing="ij"
-                    ),
-                    -1,
+                index_coords = pixels.generate_grid_coords(
+                    [res] * self.n_input_dims, indexing="xy"
                 )
                 if res**self.n_input_dims <= n_level_encodings:
                     res_shape = [res] * self.n_input_dims
@@ -97,7 +94,9 @@ class MultiLevelHashEncoding(torch.nn.Module):
                 self.register_parameter(
                     "level_emb_matrix" + str(level),
                     torch.nn.Parameter(
-                        torch.empty(n_embed_dims, n_level_encodings).uniform_(-0.5, 0.5)
+                        torch.empty(n_embed_dims, n_level_encodings).uniform_(
+                            -1e-4, 1e-4
+                        )
                     ),
                 )
 
