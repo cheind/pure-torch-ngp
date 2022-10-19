@@ -123,7 +123,6 @@ def main():
 
     # Compute image stats
     mean, std = img.mean((1, 2), keepdim=True), img.std((1, 2), keepdim=True)
-    H, W = img.shape[1:]
     n_pixels = np.prod(img.shape[1:])
 
     # Normalize image
