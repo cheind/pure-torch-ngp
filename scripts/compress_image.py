@@ -14,7 +14,7 @@ from PIL import Image
 from tqdm import tqdm
 
 
-class Nerf2D(torch.nn.Module):
+class CompressionModule(torch.nn.Module):
     def __init__(
         self,
         n_out: int,
@@ -37,9 +37,9 @@ class Nerf2D(torch.nn.Module):
 
         self.mlp = torch.nn.Sequential(
             torch.nn.Flatten(),
-            torch.nn.Linear(n_features, n_hidden),
+            torch.nn.Linear(n_features, n_hidden * 4),
             torch.nn.ReLU(),
-            torch.nn.Linear(n_hidden, n_hidden),
+            torch.nn.Linear(n_hidden * 4, n_hidden),
             torch.nn.ReLU(),
             torch.nn.Linear(n_hidden, n_hidden),
             torch.nn.ReLU(),
@@ -72,36 +72,72 @@ def render_image(net, ncoords, image_shape, mean, std, n_samples=2) -> torch.Ten
     return colors
 
 
+@torch.no_grad()
+def render_image(net, ncoords, image_shape, mean, std, batch_size) -> torch.Tensor:
+    C, H, W = image_shape
+    parts = []
+    for batch in ncoords.reshape(-1, 2).split(batch_size):
+        parts.append(net(batch))
+    img = torch.cat(parts, 0)
+    img = img.view((H, W, C)).permute(2, 0, 1)
+    img = torch.clip(img * std + mean, 0, 1)
+    return img
+
+
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--num-epochs", type=int, help="Visits per pixel in training", default=200
+    )
+    parser.add_argument(
+        "--batch-size", type=int, help="Pixels per batch", default=2**18
+    )
+    parser.add_argument("--lr", type=float, help="Initial learning rate", default=1e-2)
+    parser.add_argument(
+        "--num-hidden", type=int, help="Number of hidden units", default=64
+    )
+    parser.add_argument(
+        "--num-encodings",
+        type=int,
+        help="Maximum number of encodings per resolution",
+        default=2**16,
+    )
     parser.add_argument("image", help="Image to compress")
     args = parser.parse_args()
 
+    dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+
+    # Read image
     img = np.asarray(
         Image.open(
             args.image,
         )
     )
     img = torch.tensor(img).permute(2, 0, 1).float() / 255.0
-    img = img.cuda()
+    img = img.to(dev)
+    coords = pixels.generate_grid_coords(img.shape[1:], indexing="xy").to(dev)
+    ncoords = pixels.normalize_coords(coords, indexing="xy").to(dev)
+
+    # Compute image stats
     mean, std = img.mean((1, 2), keepdim=True), img.std((1, 2), keepdim=True)
-    nimg = (img - mean) / std
     H, W = img.shape[1:]
 
-    net = Nerf2D(
+    # Normalize image
+    nimg = (img - mean) / std
+
+    # Setup module
+    net = CompressionModule(
         n_out=img.shape[0],
-        n_hidden=64,
-        n_encodings=2**16,
+        n_hidden=args.num_hidden,
+        n_encodings=args.num_encodings,
         n_levels=16,
         min_res=16,
         max_res=max(img.shape[2:]) // 2,
-    ).cuda()
+    ).to(dev)
     dofs = compute_dof_rate(net, img)
     print(f"DoFs of input: {dofs*100:.2f}%")
 
-    coords = pixels.generate_grid_coords(img.shape[1:], indexing="xy").cuda()
-    ncoords = pixels.normalize_coords(coords, indexing="xy").cuda()
-
+    # Setup optimizer and scheduler
     opt = torch.optim.Adam(
         [
             {"params": net.encoder.parameters(), "weight_decay": 0.0},
@@ -109,20 +145,22 @@ def main():
         ],
         betas=(0.9, 0.99),
         eps=1e-15,
-        lr=1e-2,
+        lr=args.lr,
     )
     sched = torch.optim.lr_scheduler.ReduceLROnPlateau(
         opt, mode="min", patience=2, factor=0.1, min_lr=1e-5
     )
 
-    batch_size = 2**18
-    sel_prob = batch_size / np.prod(img.shape[1:])
+    # Estimation of selection probability per pixel
+    sel_prob = min(args.batch_size / np.prod(img.shape[1:]), 1)
     a = img.new_ones(img.shape[1:]) * sel_prob
 
-    n_epochs = 400
-    n_steps_per_epoch = max(np.prod(img.shape[1:]) // batch_size, 1)
-    n_steps = n_epochs * n_steps_per_epoch
+    # Estimation of total steps such that each pixel is selected num_epochs
+    # times.
+    n_steps_per_epoch = max(np.prod(img.shape[1:]) // args.batch_size, 1)
+    n_steps = args.num_epochs * n_steps_per_epoch
 
+    # Train
     pbar = tqdm(range(n_steps), mininterval=0.1)
     pbar_postfix = {"loss": 0.0}
     for step in pbar:
@@ -131,8 +169,7 @@ def main():
         x_ncoords = ncoords[mask]
         y_colors = net(x_ncoords)
         opt.zero_grad()
-        # relative L2 loss
-        loss = F.mse_loss(y_colors, x_colors)
+        loss = F.mse_loss(y_colors, x_colors.permute(1, 0))
         loss.backward()
         opt.step()
 
@@ -142,7 +179,7 @@ def main():
             pbar_postfix["lr"] = max(sched._last_lr)
 
         if step % 1000 == 0:
-            recimg = render_image(net, ncoords, nimg.shape, mean, std, n_samples=1)
+            recimg = render_image(net, ncoords, nimg.shape, mean, std, args.batch_size)
             psnr, _ = metrics.peak_signal_noise_ratio(
                 img.unsqueeze(0), recimg.unsqueeze(0), 1.0
             )
@@ -155,20 +192,18 @@ def main():
         pbar.set_postfix(**pbar_postfix, refresh=False)
         pbar.update()
 
-    y_img_1 = render_image(net, ncoords, nimg.shape, mean, std, n_samples=1)
-    # y_img_4 = render_image(net, ncoords, nimg.shape, mean, std, n_samples=4)
-    err = (y_img_1 - img).abs().sum(0)
+    imgrec = render_image(net, ncoords, nimg.shape, mean, std, args.batch_size)
+    err = (imgrec - img).abs().sum(0)
 
     fig, axs = plt.subplots(1, 3, figsize=(16, 9), sharex=True, sharey=True)
     fig.suptitle(f"Nerf2D dof={dofs*100:.2f}")
     axs[0].imshow(img.permute(1, 2, 0).cpu())
     axs[0].set_title("Input")
-    axs[1].imshow(y_img_1.permute(1, 2, 0).cpu())
+    axs[1].imshow(imgrec.permute(1, 2, 0).cpu())
     axs[1].set_title("Reconstruction 1")
     axs[2].imshow(err.cpu())
     axs[2].set_title(f"Absolute Error mu={err.mean():2f}, std={err.std():.2f}")
-
-    fig.savefig("result.png", dpi=600)
+    fig.savefig("tmp/uncompressed.png", dpi=600)
     plt.show()
 
 
