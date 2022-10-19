@@ -4,7 +4,8 @@ import torch
 def peak_signal_noise_ratio(
     x: torch.tensor, y: torch.tensor, datarange: float
 ) -> tuple[torch.FloatTensor, torch.BoolTensor]:
-    """Computes the channel-wise peak signal to noise ratio (PSNR) for the given image(s).
+    """Computes the channel-wise peak signal to noise ratio (PSNR) for the given
+    image(s).
 
     Computed according to
         psnr(x,y)   = 10 * log10 (PEAK^2/MSE)
