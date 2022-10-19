@@ -1,4 +1,25 @@
+"""GigaPixel image compression
+
+Learns to compress a single large image using 2D multi-level
+hash encoding as described in the paper [1]. The compressed image
+is given by a set of hash embedding vectors and a small
+(in parameters) multi layer perceptron network. Given only
+image positions, the original image can be reconstructed.
+
+It has been shown that for the reconstruction of fine details of large
+images, no more than 4% of the possible degrees of freedom of the
+original image (#params / #pixels) are required.
+
+This implementation is closely aligned to the proposed method in
+[1], but might fail for true giga pixel images due to memory constraints.
+Adding support would require to implement out-of-memory image manipulation
+routines.
+
+References:
+[1] https://nvlabs.github.io/instant-ngp/assets/mueller2022instant.pdf
+"""
 import argparse
+import math
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -70,7 +91,9 @@ def render_image(net, ncoords, image_shape, mean, std, batch_size) -> torch.Tens
 
 
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description=str(__doc__), formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument(
         "--num-epochs", type=int, help="Number of image epochs", default=100
     )
@@ -82,10 +105,10 @@ def main():
         "--num-hidden", type=int, help="Number of hidden units", default=64
     )
     parser.add_argument(
-        "--num-encodings-exp",
+        "--num-encodings",
         type=int,
-        help="Exponent of number of encodings = 2**this",
-        default=16,
+        help="Number of encodings",
+        default=2**14,
     )
     parser.add_argument("image", help="Image to compress")
     args = parser.parse_args()
@@ -106,6 +129,7 @@ def main():
     # Compute image stats
     mean, std = img.mean((1, 2), keepdim=True), img.std((1, 2), keepdim=True)
     H, W = img.shape[1:]
+    n_pixels = np.prod(img.shape[1:])
 
     # Normalize image
     nimg = (img - mean) / std
@@ -114,7 +138,7 @@ def main():
     net = CompressionModule(
         n_out=img.shape[0],
         n_hidden=args.num_hidden,
-        n_encodings=2**args.num_encodings_exp,
+        n_encodings=int(args.num_encodings),
         n_levels=16,
         min_res=16,
         max_res=max(img.shape[2:]) // 2,
@@ -126,19 +150,19 @@ def main():
     opt = torch.optim.AdamW(
         [
             {"params": net.encoder.parameters(), "weight_decay": 0.0},
-            {"params": net.mlp.parameters(), "weight_decay": 1e-7},
+            {"params": net.mlp.parameters(), "weight_decay": 1e-6},
         ],
         betas=(0.9, 0.99),
         eps=1e-15,
         lr=args.lr,
     )
     sched = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        opt, mode="max", patience=20, factor=0.1, min_lr=1e-5, threshold=0.1
+        opt, mode="max", patience=40, factor=0.5, min_lr=1e-5, threshold=0.1
     )
 
     # Estimation of total steps such that each pixel is selected num_epochs
     # times.
-    n_steps_per_epoch = max(np.prod(img.shape[1:]) // args.batch_size, 1)
+    n_steps_per_epoch = max(n_pixels // args.batch_size, 1)
     n_steps = args.num_epochs * n_steps_per_epoch
 
     # Train
