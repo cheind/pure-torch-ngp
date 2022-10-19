@@ -37,9 +37,9 @@ class CompressionModule(torch.nn.Module):
 
         self.mlp = torch.nn.Sequential(
             torch.nn.Flatten(),
-            torch.nn.Linear(n_features, n_hidden * 4),
+            torch.nn.Linear(n_features, n_hidden),
             torch.nn.ReLU(),
-            torch.nn.Linear(n_hidden * 4, n_hidden),
+            torch.nn.Linear(n_hidden, n_hidden),
             torch.nn.ReLU(),
             torch.nn.Linear(n_hidden, n_hidden),
             torch.nn.ReLU(),
@@ -148,7 +148,7 @@ def main():
         lr=args.lr,
     )
     sched = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        opt, mode="min", patience=2, factor=0.1, min_lr=1e-5
+        opt, mode="max", patience=4, factor=0.1, min_lr=1e-5, threshold=0.1
     )
 
     # Estimation of selection probability per pixel
@@ -174,21 +174,20 @@ def main():
         opt.step()
 
         pbar_postfix["loss"] = loss.item()
-        if step % 100 == 0:
-            sched.step(loss)
-            pbar_postfix["lr"] = max(sched._last_lr)
-
-        if step % 1000 == 0:
+        if step % 250 == 0:
             recimg = render_image(net, ncoords, nimg.shape, mean, std, args.batch_size)
             psnr, _ = metrics.peak_signal_noise_ratio(
                 img.unsqueeze(0), recimg.unsqueeze(0), 1.0
             )
+            sched.step(psnr.mean().item())
+            pbar_postfix["lr"] = max(sched._last_lr)
             pbar_postfix["psnr[dB]"] = psnr.mean().item()
 
-            recimg = recimg.permute(1, 2, 0).cpu() * 255
-            Image.fromarray(recimg.to(torch.uint8).numpy()).save(
-                f"tmp/out_{step:04d}.png"
-            )
+            if step % 1000 == 0:
+                recimg = recimg.permute(1, 2, 0).cpu() * 255
+                Image.fromarray(recimg.to(torch.uint8).numpy()).save(
+                    f"tmp/out_{step:04d}.png"
+                )
         pbar.set_postfix(**pbar_postfix, refresh=False)
         pbar.update()
 
