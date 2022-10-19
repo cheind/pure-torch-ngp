@@ -6,6 +6,13 @@
 #
 --extra-index-url https://download.pytorch.org/whl/cu113
 --find-links https://download.pytorch.org/whl/torch_stable.html
+--trusted-host pypi.python.org
+--trusted-host pypi.org
+--trusted-host files.pythonhosted.org
+--trusted-host raw.githubusercontent.com
+--trusted-host github.com
+--trusted-host download.pytorch.org
+--trusted-host gitlab.profactor.at
 
 contourpy==1.0.5
     # via matplotlib
@@ -35,6 +42,8 @@ python-dateutil==2.8.2
 six==1.16.0
     # via python-dateutil
 torch==1.12.1+cu116
+    # via -r requirements.in
+tqdm==4.64.1
     # via -r requirements.in
 typing-extensions==4.4.0
     # via torch
