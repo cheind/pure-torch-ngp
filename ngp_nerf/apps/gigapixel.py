@@ -19,7 +19,6 @@ References:
 [1] https://nvlabs.github.io/instant-ngp/assets/mueller2022instant.pdf
 """
 import argparse
-import math
 
 import matplotlib.pyplot as plt
 import numpy as np
