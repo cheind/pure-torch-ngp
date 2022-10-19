@@ -75,7 +75,6 @@ class MultiLevelHashEncoding(torch.nn.Module):
                     ]
                 )
             ).long()
-            print(resolutions)
             # For each resolution R, we form a (E,R,R,R) levelmap whose vertices
             # contain a view of the global embedding vectors in first dimension.
             # The encoding vector indices are computed by hashing the spatial
@@ -92,7 +91,6 @@ class MultiLevelHashEncoding(torch.nn.Module):
                     indices = hashing.ravel_index(
                         index_coords, res_shape, self.n_encodings
                     )
-                    print(len(torch.unique(indices)))
                 else:
                     indices = hashing.xor_index_hashing(index_coords, self.n_encodings)
                 self.register_buffer("level_embedding_indices" + str(level), indices)
@@ -142,7 +140,6 @@ if __name__ == "__main__":
         max_res=512,
     )
     f = mlh3d(torch.empty((10000, 3)).uniform_(-1, 1))
-    print(f.shape)
 
     # mlh2d = MultiLevelHashEncoding(
     #     n_encodings=2**14,
