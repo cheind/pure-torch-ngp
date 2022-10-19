@@ -51,12 +51,8 @@ class Nerf2D(torch.nn.Module):
         return self.mlp(f)
 
 
-def count_parameters(model):
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-
 def compute_dof_rate(model, img):
-    n_params = count_parameters(model)
+    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     n_pixels = np.prod(img.shape[1:])
     return n_params / n_pixels
 
@@ -101,7 +97,7 @@ def main():
         max_res=max(img.shape[2:]) // 2,
     ).cuda()
     dofs = compute_dof_rate(net, img)
-    print(f"DoFs: {dofs*100:.2f}%")
+    print(f"DoFs of input: {dofs*100:.2f}%")
 
     coords = pixels.generate_grid_coords(img.shape[1:], indexing="xy").cuda()
     ncoords = pixels.normalize_coords(coords, indexing="xy").cuda()
@@ -135,7 +131,8 @@ def main():
         x_ncoords = ncoords[mask]
         y_colors = net(x_ncoords)
         opt.zero_grad()
-        loss = F.mse_loss(y_colors, x_colors.permute(1, 0))
+        # relative L2 loss
+        loss = F.mse_loss(y_colors, x_colors)
         loss.backward()
         opt.step()
 
@@ -149,7 +146,7 @@ def main():
             psnr, _ = metrics.peak_signal_noise_ratio(
                 img.unsqueeze(0), recimg.unsqueeze(0), 1.0
             )
-            pbar_postfix["psnr[db]"] = psnr.mean().item()
+            pbar_postfix["psnr[dB]"] = psnr.mean().item()
 
             recimg = recimg.permute(1, 2, 0).cpu() * 255
             Image.fromarray(recimg.to(torch.uint8).numpy()).save(
