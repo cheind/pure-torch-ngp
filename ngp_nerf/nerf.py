@@ -253,7 +253,7 @@ class NeRF(torch.nn.Module):
 if __name__ == "__main__":
     dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     scene = MultiViewScene()
-    scene.load_from_json("data/suzanne/transforms.json")
+    scene.load_from_json("data/fox/transforms.json")
     nerf = NeRF(
         3,
         n_hidden=64,
