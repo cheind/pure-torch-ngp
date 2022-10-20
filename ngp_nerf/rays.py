@@ -33,6 +33,13 @@ def intersect_rays_aabb(
     return tnear, tfar
 
 
+def normalize_xyz_in_aabb(
+    x: torch.Tensor, box_min: torch.Tensor, box_max: torch.Tensor
+) -> torch.Tensor:
+    span = box_max - box_min  # (3,)
+    return (x - box_min[None, :]) / span[None, :] * 2.0 - 1.0
+
+
 def sample_rays_uniformly(
     tnear: torch.Tensor, tfar: torch.Tensor, n_bins: int
 ) -> torch.Tensor:
@@ -46,7 +53,7 @@ def sample_rays_uniformly(
         tfar: (B,) tensor
 
     Returns:
-        samples: (B,n_bins,n_samples)
+        samples: (B,n_bins)
 
     Based on:
         NeRF: Representing Scenes as
