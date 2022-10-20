@@ -131,6 +131,89 @@ class View(torch.nn.Module):
         return out
 
 
+class MultiViewScene2:
+    def __init__(self) -> None:
+        self.views: list[View] = []
+        self.images: list[torch.Tensor] = []
+        self.image_masks: list[torch.Tensor] = []
+        self.aabb_minc: torch.Tensor = -torch.ones((3,))
+        self.aabb_maxc: torch.Tensor = torch.ones((3,))
+
+    def add_view(self, v: View):
+        self.views.append(v)
+
+    def load_from_json(self, path: str, device: torch.device = None):
+        """Loads scene information from nvidia compatible transforms.json"""
+        self.views.clear()
+        self.images.clear()
+        self.image_masks.clear()
+
+        path = Path(path)
+        assert path.is_file()
+        with open(path, "r") as f:
+            data = json.load(f)
+
+        K = torch.eye(3)
+        K[0, 0] = data["fl_x"]
+        K[1, 1] = data["fl_y"]
+        K[0, 2] = data["cx"]
+        K[1, 2] = data["cy"]
+
+        self.aabb_minc = -torch.ones((3,)) * data["aabb_scale"] * 0.5
+        self.aabb_maxc = torch.ones((3,)) * data["aabb_scale"] * 0.5
+
+        for frame in data["frames"]:
+            # Handle image
+            imgpath = path.parent / frame["file_path"]
+            if not imgpath.is_file():
+                print(f"Skipping {str(imgpath)}, image not found.")
+                continue
+            img = Image.open(imgpath)
+            img = torch.tensor(np.asarray(img)).float().permute(2, 0, 1) / 255.0
+            C, H, W = img.shape
+            if C == 4:
+                mask = img[-1] > 0.0
+            else:
+                mask = img.new_ones((H, W), dtype=bool)
+            self.images.append(img[:3].contiguous())
+            self.image_masks.append(mask.clone())
+
+            # Handle extrinsics (convert from OpenGL to OpenCV camera
+            # model: i.e look towards positive z)
+            flip = torch.eye(4)
+            flip[1, 1] = -1
+            flip[2, 2] = -1
+            t = torch.tensor(frame["transform_matrix"])
+            t = t @ flip
+
+            view = View(K.clone(), t, (H, W)).to(device)
+            self.views.append(view)
+
+    def render_world(self):
+        import matplotlib.pyplot as plt
+        import pytransform3d.camera as pc
+        import pytransform3d.transformations as pt
+        from pytransform3d.plot_utils import plot_box
+
+        ax = pt.plot_transform(s=0.5)
+        for v in self.views:
+
+            ax = pt.plot_transform(A2B=v.t_world_cam.cpu().numpy(), s=0.5)
+            pc.plot_camera(
+                ax,
+                cam2world=v.t_world_cam.cpu().numpy(),
+                M=v.K.cpu().numpy(),
+                sensor_size=v.image_spatial_shape[::-1],
+                virtual_image_distance=1.0,
+                linewidth=0.25,
+            )
+        plot_box(ax, (self.aabb_maxc - self.aabb_minc).numpy())
+        ax.set_aspect("equal")
+        ax.relim()  # make sure all the data fits
+        ax.autoscale()
+        plt.show()
+
+
 class MultiViewScene:
     def __init__(self) -> None:
         self.images: list[torch.Tensor] = []
@@ -264,16 +347,20 @@ class MultiViewScene:
 if __name__ == "__main__":
     scene = MultiViewScene()
     scene.load_from_json("data/suzanne/transforms.json")
+
+    scene = MultiViewScene2()
+    scene.load_from_json("data/suzanne/transforms.json")
+    scene.render_world()
     # # scene.render_setup()
     # scene.compute_train_info()
     # print(scene)
 
-    v = View(scene.K, scene.t_world_cam[0], scene.images[0].shape[1:])
-    o, d = v.world_rays()
-    print(o, v.t_world_cam[:3, 3])
-    print(d.shape)
-    print(repr(v.K))
-    print(repr(v.t_world_cam))
+    # v = View(scene.K, scene.t_world_cam[0], scene.images[0].shape[1:])
+    # o, d = v.world_rays()
+    # print(o, v.t_world_cam[:3, 3])
+    # print(d.shape)
+    # print(repr(v.K))
+    # print(repr(v.t_world_cam))
 
     # v = View(K,T,image_shape(...))
     # o,d = v.world_rays()
