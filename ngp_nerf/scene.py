@@ -36,6 +36,9 @@ class MultiViewScene:
         for frame in data["frames"]:
             # Handle image
             imgpath = path.parent / frame["file_path"]
+            if not imgpath.is_file():
+                print(f"Skipping {str(imgpath)}")
+                continue
             assert imgpath.is_file()
             img = Image.open(imgpath)
             img = torch.tensor(np.asarray(img)).float().permute(2, 0, 1) / 255.0
