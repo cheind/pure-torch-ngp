@@ -1,3 +1,5 @@
+from re import S
+from typing import Callable
 import torch
 import torch.nn
 import torch.nn.functional as F
@@ -6,7 +8,127 @@ import numpy as np
 from pathlib import Path
 from PIL import Image
 
-from . import cameras, linalg, rays
+from . import cameras, linalg, rays, radiance
+
+
+class View(torch.nn.Module):
+    # Uses HWC format!
+    def __init__(
+        self,
+        K: torch.Tensor,
+        t_world_cam: torch.Tensor,
+        image_spatial_shape: tuple[int, int, int],
+    ) -> None:
+        super().__init__()
+        assert len(image_spatial_shape) == 2, "Only (H,W) required"
+        self.register_buffer("K", K)
+        self.register_buffer("t_world_cam", t_world_cam)
+        self.K: torch.Tensor
+        self.t_world_cam: torch.Tensor
+        self.image_spatial_shape = image_spatial_shape
+
+    def view_rays(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """Returns rays in view local frame.
+
+        Returns:
+            o: (1,1,3) origins ray directions
+            d: (H,W,3) normalized ray directions
+        """
+        o = self.K.new_zeros(3)[None, None, :]
+        d = cameras.image_points(self.K, self.image_spatial_shape)
+        d = F.normalize(d, p=2, dim=-1)
+        return o, d
+
+    def world_rays(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """Returns rays in world frame.
+
+        Returns:
+            o: (1,1,3) origins ray directions
+            d: (H,W,3) normalized ray directions
+        """
+        o, d = self.view_rays()
+        o = (linalg.hom(o, 1) @ self.t_world_cam.T)[..., :3]
+        d = (linalg.hom(d, 0) @ self.t_world_cam.T)[..., :3]
+        return o, d
+
+    @torch.no_grad()
+    def render_image(
+        self,
+        radiance_field: radiance.RadianceField,
+        radiance_aabb_minc: torch.Tensor,
+        radiance_aabb_maxc: torch.Tensor,
+        batch_size: int = 2**16,
+        n_samples: int = 100,
+        out: torch.Tensor = None,
+    ) -> torch.Tensor:
+        """Performs a volumentric rendering of this perspective.
+
+        The rendering is performed by integrating color values
+        along each ray. The returned image will be RGBA, where
+        RGB is integrated and A is defined as (1.0 - ttfar),
+        with ttfar being the probability of being transmissive
+        at ray/radiance field exit.
+
+        Returns:
+            out: (H,W,4) RGBA image in [0..1] range. Note, we have C
+                in the last dimension.
+        """
+
+        # Compute world rays
+        origins, dirs = self.world_rays()
+        origins = origins.view(-1, 3)
+        dirs = dirs.view(-1, 3)
+
+        # Find limits of intersection with radiance field bounds
+        tnear, tfar = rays.intersect_rays_aabb(
+            origins, dirs, radiance_aabb_minc, radiance_aabb_maxc
+        )
+
+        # Determine which rays intersect the radiance field and limit
+        # computation to those
+        hit = tnear < tfar
+        tnear = tnear[hit]
+        tfar = tfar[hit]
+        origins = origins[hit]
+        dirs = dirs[hit]
+
+        n_hit = dirs.shape[0]
+        if out is None:
+            out = self.K.new_zeros(self.image_spatial_shape + (4,))  # RGBA image
+
+        # Reconstruct image in parts
+        color_parts = []
+        alpha_parts = []
+        for batch_ids in torch.arange(n_hit, device=self.K.device).split(batch_size):
+            # Sample T ray positions uniform randomly
+            ts = rays.sample_rays_uniformly(
+                tnear[batch_ids], tfar[batch_ids], n_samples
+            )
+            # Evaluate the rays (B,T,3)
+            xyz = origins[batch_ids, None] + ts[..., None] * dirs[batch_ids, None]
+            # Normalize range of world points to [-1,+1]
+            nxyz = rays.normalize_xyz_in_aabb(
+                xyz, radiance_aabb_minc, radiance_aabb_maxc
+            )
+
+            pred_sample_sigma, pred_sample_color = radiance_field(nxyz.view(-1, 3))
+            pred_colors, pred_transm, _ = radiance.integrate_path(
+                pred_sample_color.view(-1, n_samples, 3),
+                pred_sample_sigma.view(-1, n_samples),
+                ts,
+                tfar[batch_ids],
+            )
+            color_parts.append(pred_colors)
+            alpha_parts.append(1.0 - pred_transm[:, -1])
+
+        colors = torch.cat(color_parts, 0)
+        alphas = torch.cat(alpha_parts, 0)
+
+        outflat = out.view(-1, 4)
+        outflat[hit, :3] = colors
+        outflat[hit, 3] = alphas
+
+        return out
 
 
 class MultiViewScene:
@@ -142,22 +264,28 @@ class MultiViewScene:
 if __name__ == "__main__":
     scene = MultiViewScene()
     scene.load_from_json("data/suzanne/transforms.json")
-    # scene.render_setup()
-    scene.compute_train_info()
-    print(scene)
+    # # scene.render_setup()
+    # scene.compute_train_info()
+    # print(scene)
 
+    v = View(scene.K, scene.t_world_cam[0], scene.images[0].shape[1:])
+    o, d = v.world_rays()
+    print(o, v.t_world_cam[:3, 3])
+    print(d.shape)
+    print(repr(v.K))
+    print(repr(v.t_world_cam))
 
-# scene = load_nerf_scene("...")
-# scene.imgs(N, H, W, 3)
-# scene.img_masks(N, H, W, 1)
-# scene.img_mean, img_std(
-#     4,
-# )
-# scene.nimgs
-# scene.K
-# scene.extrinsics
-# scene.aabb_minc
-# scene.aabb_maxc
-# scene.ray_origins(N, 3)
-# scene.ray_dirs(N, H, W, 3)
-# scene.ray_colors(N, H, W, 3)
+    # v = View(K,T,image_shape(...))
+    # o,d = v.world_rays()
+    # o,d = v.view_rays()
+    # v.render_image(...) -> img
+    # v.save_image(...)
+
+    # tnear, tfar, valid = scene.intersect_rays_aabb(o,d)
+    # ts = ray.sample(tnear,tfar,n_samples)
+    # xyz = ray.evaluate(o,d,ts)
+
+    # v.to_world(o,d)
+
+    # v.tnear
+    # v.tfar

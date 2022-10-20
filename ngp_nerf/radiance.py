@@ -1,4 +1,8 @@
 import torch
+from typing import Callable
+
+"""Protocol of a spatial radiance field"""
+RadianceField = Callable[[torch.Tensor], tuple[torch.Tensor, torch.Tensor]]
 
 
 def integrate_path(
