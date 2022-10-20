@@ -1,11 +1,8 @@
-from typing import final
 import torch
-import numpy as np
 from torch.testing import assert_close
 import matplotlib as mpl
-import matplotlib.pyplot as plt
 
-from ngp_nerf import rays, radiance
+from ngp_nerf import radiance
 
 
 def test_volume_rendering():
