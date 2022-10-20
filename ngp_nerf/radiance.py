@@ -16,8 +16,8 @@ def integrate_path(
 
     Returns:
         color: (B,C) final colors for each ray
-        alpha: (B,T) alpha transparency values for ray/sample position
         transmittance: (B,T) accumulated transmittance for each ray/sample
+        alpha: (B,T) alpha transparency values for ray/sample position
 
     References:
         [1] NeRF: Representing Scenes as
