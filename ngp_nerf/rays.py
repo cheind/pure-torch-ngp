@@ -48,11 +48,10 @@ def sample_rays_uniformly(
     Returns:
         samples: (B,n_bins,n_samples)
 
-
-    Based on
-    NeRF: Representing Scenes as
-    Neural Radiance Fields for View Synthesis
-    https://arxiv.org/pdf/2003.08934.pdf
+    Based on:
+        NeRF: Representing Scenes as
+        Neural Radiance Fields for View Synthesis
+        https://arxiv.org/pdf/2003.08934.pdf
     """
     B = tnear.shape[0]
     td = tfar - tnear
