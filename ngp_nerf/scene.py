@@ -1,9 +1,12 @@
 import torch
 import torch.nn
+import torch.nn.functional as F
 import json
 import numpy as np
 from pathlib import Path
 from PIL import Image
+
+from . import cameras, linalg
 
 
 class MultiViewScene:
@@ -40,7 +43,7 @@ class MultiViewScene:
             if C == 4:
                 mask = img[-1] > 0.0
             else:
-                mask = img.new_ones((H, W))
+                mask = img.new_ones((H, W), dtype=bool)
             self.images.append(img[:3].contiguous())
             self.image_masks.append(mask)
 
@@ -52,6 +55,41 @@ class MultiViewScene:
             t = torch.tensor(frame["transform_matrix"])
             t = t @ flip
             self.t_world_cam.append(t)
+
+    def compute_world_rays(self) -> dict[str, torch.Tensor]:
+        """Returns world rays + color information for all views.
+
+        Returns:
+            A dictionary with the following keys
+                K: (3,3) camera intrinsics
+                extrinsics: (B,4,4) cam in world matrices
+                origins: (B,3) camera origins in world
+                directions: (B,H,W,3) normalized ray directions in world
+                colors: (B,C,H,W) color images
+                masks: (B,H,W) color alpha masks
+        """
+        ret = {}
+        ret["extrinsics"] = torch.stack(self.t_world_cam, 0)
+        ret["origins"] = ret["extrinsics"][:, :3, 3].contiguous()
+        ret["colors"] = torch.stack(self.images, 0)
+        ret["masks"] = torch.stack(self.image_masks, 0)
+
+        N, C, H, W = ret["colors"].shape
+
+        # TODO: do this batched
+        rays = []
+        cpts = cameras.image_points(self.K, self.images[0].shape[1:])
+        crays = F.normalize(cpts, p=2, dim=-1)
+        for i in range(N):
+            # note, dehom here leads to infs
+            rays.append((linalg.hom(crays, 0) @ self.t_world_cam[i].T)[..., :3])
+        rays = torch.stack(rays, 0)
+        ret["directions"] = rays
+
+        # should match:
+        # print(rays[0, H // 2, W // 2], self.t_world_cam[0][:3, 2])
+
+        return ret
 
     def render_setup(self):
         import matplotlib.pyplot as plt
@@ -87,7 +125,8 @@ class MultiViewScene:
 if __name__ == "__main__":
     scene = MultiViewScene()
     scene.load_from_json("data/suzanne/transforms.json")
-    scene.render_setup()
+    # scene.render_setup()
+    scene.compute_world_rays()
     print(scene)
 
 
