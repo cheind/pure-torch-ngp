@@ -1,7 +1,7 @@
 import torch
 
 
-def intersect_ray_aabb(
+def intersect_rays_aabb(
     origins: torch.Tensor,
     dirs: torch.Tensor,
     box_min: torch.Tensor,
@@ -31,3 +31,31 @@ def intersect_ray_aabb(
     tnear = t1.max(dim=1)[0]
     tfar = t2.min(dim=1)[0]
     return tnear, tfar
+
+
+def sample_rays_uniformly(
+    tnear: torch.Tensor, tfar: torch.Tensor, n_bins: int
+) -> torch.Tensor:
+    """Samples rays uniformly in bins between tnear/tfar.
+
+    Params:
+        tnear: (B,) tensor
+        tfar: (B,) tensor
+
+    Returns:
+        samples: (B,n_bins,n_samples)
+
+
+    Based on
+    NeRF: Representing Scenes as
+    Neural Radiance Fields for View Synthesis
+    https://arxiv.org/pdf/2003.08934.pdf
+    """
+    B = tnear.shape[0]
+    td = tfar - tnear
+    # TODO: check inclusive bounds of uniform
+    u = tnear.new_empty((B, n_bins)).uniform_(0.0, 1.0)
+    ifrac = torch.arange(n_bins, dtype=tnear.dtype, device=tnear.device) / n_bins
+    tnear_bins = tnear[:, None] + ifrac[None, :] * td[:, None]
+    ts = tnear_bins + (td[:, None] / n_bins) * u
+    return ts
