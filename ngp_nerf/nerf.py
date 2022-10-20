@@ -220,18 +220,22 @@ class NeRF(torch.nn.Module):
         origins = origins[valid]
         dirs = dirs[valid]
 
-        ts = rays.sample_rays_uniformly(tnear, tfar, n_samples)
-        xyz = origins[:, None] + ts[..., None] * dirs[:, None]  # (B,T,3)
-        nxyz = rays.normalize_xyz_in_aabb(xyz, aabb_min, aabb_max)
-
         parts = []
         for batch_ids in torch.arange(dirs.shape[0]).split(batch_size):
             B = len(batch_ids)
-            pred_sample_sigma, pred_sample_color = self(nxyz[batch_ids].view(-1, 3))
+            ts = rays.sample_rays_uniformly(
+                tnear[batch_ids], tfar[batch_ids], n_samples
+            )
+            xyz = (
+                origins[batch_ids, None] + ts[..., None] * dirs[batch_ids, None]
+            )  # (B,T,3)
+            nxyz = rays.normalize_xyz_in_aabb(xyz, aabb_min, aabb_max)
+
+            pred_sample_sigma, pred_sample_color = self(nxyz.view(-1, 3))
             pred_colors, pred_transm, _ = radiance.integrate_path(
                 pred_sample_color.view(B, n_samples, 3),
                 pred_sample_sigma.view(B, n_samples),
-                ts[batch_ids],
+                ts,
                 tfar[batch_ids],
             )
             parts.append(pred_colors)
