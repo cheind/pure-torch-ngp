@@ -6,7 +6,7 @@ import numpy as np
 from pathlib import Path
 from PIL import Image
 
-from . import cameras, linalg
+from . import cameras, linalg, rays
 
 
 class MultiViewScene:
@@ -38,14 +38,14 @@ class MultiViewScene:
             imgpath = path.parent / frame["file_path"]
             assert imgpath.is_file()
             img = Image.open(imgpath)
-            img = torch.tensor(np.asarray(img)).float().permute(2, 0, 1)
+            img = torch.tensor(np.asarray(img)).float().permute(2, 0, 1) / 255.0
             C, H, W = img.shape
             if C == 4:
                 mask = img[-1] > 0.0
             else:
                 mask = img.new_ones((H, W), dtype=bool)
             self.images.append(img[:3].contiguous())
-            self.image_masks.append(mask)
+            self.image_masks.append(mask.clone())
 
             # Handle extrinsics (convert from OpenGL to OpenCV camera
             # model: i.e look towards positive z)
@@ -56,35 +56,49 @@ class MultiViewScene:
             t = t @ flip
             self.t_world_cam.append(t)
 
-    def compute_world_rays(self) -> dict[str, torch.Tensor]:
+    def compute_train_info(self) -> dict[str, torch.Tensor]:
         """Returns world rays + color information for all views.
 
         Returns:
             A dictionary with the following keys
                 K: (3,3) camera intrinsics
                 extrinsics: (B,4,4) cam in world matrices
-                origins: (B,3) camera origins in world
+                origins: (B,H,W,3) camera origins in world
                 directions: (B,H,W,3) normalized ray directions in world
-                colors: (B,C,H,W) color images
+                tnear: (B,H,W) ray tnear
+                tfar: (B,H,W) ray tfar
+                colors: (B,H,W,C) color images
                 masks: (B,H,W) color alpha masks
         """
         ret = {}
-        ret["extrinsics"] = torch.stack(self.t_world_cam, 0)
-        ret["origins"] = ret["extrinsics"][:, :3, 3].contiguous()
-        ret["colors"] = torch.stack(self.images, 0)
+        ret["colors"] = torch.stack(self.images, 0).permute(0, 2, 3, 1)
         ret["masks"] = torch.stack(self.image_masks, 0)
+        ret["extrinsics"] = torch.stack(self.t_world_cam, 0)
+        N, H, W, C = ret["colors"].shape
 
-        N, C, H, W = ret["colors"].shape
+        ret["origins"] = (
+            ret["extrinsics"][:, :3, 3].unsqueeze(1).unsqueeze(1).tile(1, H, W, 1)
+        )
 
         # TODO: do this batched
-        rays = []
+        dirs = []
         cpts = cameras.image_points(self.K, self.images[0].shape[1:])
         crays = F.normalize(cpts, p=2, dim=-1)
         for i in range(N):
             # note, dehom here leads to infs
-            rays.append((linalg.hom(crays, 0) @ self.t_world_cam[i].T)[..., :3])
-        rays = torch.stack(rays, 0)
-        ret["directions"] = rays
+            dirs.append((linalg.hom(crays, 0) @ self.t_world_cam[i].T)[..., :3])
+        dirs = torch.stack(dirs, 0)
+        ret["directions"] = dirs
+
+        tnear, tfar = rays.intersect_rays_aabb(
+            ret["origins"].view(-1, 3),
+            ret["directions"].view(-1, 3),
+            self.aabb_minc,
+            self.aabb_maxc,
+        )
+
+        ret["tnear"] = tnear.view(N, H, W)
+        ret["tfar"] = tfar.view(N, H, W)
 
         # should match:
         # print(rays[0, H // 2, W // 2], self.t_world_cam[0][:3, 2])
@@ -126,7 +140,7 @@ if __name__ == "__main__":
     scene = MultiViewScene()
     scene.load_from_json("data/suzanne/transforms.json")
     # scene.render_setup()
-    scene.compute_world_rays()
+    scene.compute_train_info()
     print(scene)
 
 
