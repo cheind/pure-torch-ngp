@@ -38,6 +38,9 @@ def sample_rays_uniformly(
 ) -> torch.Tensor:
     """Samples rays uniformly in bins between tnear/tfar.
 
+    The returned samples per ray are guaranteed to be
+    sorted in ascending order.
+
     Params:
         tnear: (B,) tensor
         tfar: (B,) tensor
