@@ -12,7 +12,7 @@ def image_points(K: torch.Tensor, shape: tuple[int, int]):
         shape: H,W of image
 
     Returns:
-        points: (HW,3) points (x,y,z)
+        points: (H,W,3) points (x,y,z)
     """
     invK = torch.inverse(K)
     pixels = generate_grid_coords(shape, indexing="xy").float()
