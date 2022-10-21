@@ -61,6 +61,7 @@ class MultiLevelHashEncoding(torch.nn.Module):
         n_levels: int = 16,
         min_res: int = 16,
         max_res: int = 512,
+        init_scale: float = 1e-4,
     ) -> None:
         """Initialize the module.
 
@@ -111,7 +112,9 @@ class MultiLevelHashEncoding(torch.nn.Module):
                 self.register_parameter(
                     "level_emb_matrix" + str(level),
                     torch.nn.Parameter(
-                        torch.empty(n_embed_dims, n_level_encodings).uniform_(-1, 1.0)
+                        torch.empty(n_embed_dims, n_level_encodings).uniform_(
+                            -init_scale, init_scale
+                        )
                     ),
                 )
 
@@ -171,6 +174,7 @@ class MultiLevelSparseHashEncoding(torch.nn.Module):
         n_levels: int = 16,
         min_res: int = 16,
         max_res: int = 512,
+        init_scale: float = 1e-4,
     ) -> None:
         """Initialize the module.
 
@@ -210,7 +214,7 @@ class MultiLevelSparseHashEncoding(torch.nn.Module):
 
             for level, n_level_encodings in enumerate(self.n_level_encodings):
                 emb = torch.empty(n_level_encodings + 1, n_embed_dims).uniform_(
-                    -1.0, 1.0
+                    -init_scale, init_scale
                 )
                 emb[-1, :] = 0.0
                 self.register_parameter(
