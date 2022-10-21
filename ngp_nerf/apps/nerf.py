@@ -96,42 +96,8 @@ def train(
         lr=lr,
     )
 
-    # Set all colors corresponding to alpha to a random value
-    # images = data["colors"]
-    # masks = data["masks"]
-    # # TODO when using random background pixels, ensure that start color matches random color
-    # images[~masks] = images[~masks].uniform_(0.0, 1.0)
-
-    # import matplotlib.pyplot as plt
-
-    # plt.imshow(images[0].cpu())
-    # plt.show()
-
-    # Exclude all rays that are invalid (miss aabb)
-    # tnear = data["tnear"]
-    # tfar = data["tfar"]
-    # validmask = tnear < tfar
-    # validmask[10] = False
-    # # validmask[-1] = False  # don't use in training
-    # tnear = tnear[validmask].contiguous()
-    # tfar = tfar[validmask].contiguous()
-    # origins = data["origins"][validmask].contiguous()
-    # dirs = data["directions"][validmask].contiguous()
-    # colors = images[validmask].contiguous()
-    # masks = masks[validmask].contiguous()
-    # aabb_min = scene.aabb_minc.to(dev)
-    # aabb_max = scene.aabb_maxc.to(dev)
-    # base_colors = colors.clone()
-    # base_colors[masks] = 0.0
-
-    # n_pixels = colors.shape[0]
-    # n_steps = int(n_epochs * n_pixels / batch_size)
-
-    # sched = torch.optim.lr_scheduler.OneCycleLR(
-    #     opt, max_lr=5e-1, total_steps=n_steps
-    # )
-
-    train_ds = MultiViewDataset(scene=scene)
+    views = list(range(len(scene.views)))
+    train_ds = MultiViewDataset(scene=scene, view_indices=views[1:])
     train_dl = torch.utils.data.DataLoader(
         train_ds,
         batch_size=10,
@@ -154,6 +120,10 @@ def train(
 
             color, alpha, o, d, tnear, tfar = batch
             noise = torch.empty_like(color).uniform_(0.0, 1.0)
+            # Dynamic noise background with alpha composition
+            # Encourages the model to learn zero density in empty regions
+            # Dynamic background is also combined with prediced colors, so
+            # model does not have to learn randomness.
             color = color * alpha[..., None] + noise * (1 - alpha[..., None])
 
             ts = rays.sample_rays_uniformly(tnear, tfar, n_samples)
