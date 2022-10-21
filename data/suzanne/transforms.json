@@ -11,7 +11,7 @@
   "k2": 0.0,
   "p1": 0.0,
   "p2": 0.0,
-  "aabb_scale": 4.0,
+  "aabb_scale": 3.0,
   "frames": [
     {
       "file_path": "image0001.png",
