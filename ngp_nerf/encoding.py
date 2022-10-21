@@ -247,13 +247,13 @@ class MultiLevelSparseHashEncoding(torch.nn.Module):
         # Normalized to pixel [-0.5,R+0.5]
         q = (q + 1) * R * 0.5 - 0.5  # (B,C)
         # Determine grid vertices
-        ql = q.floor()
+        ql = q.floor().int()
         qu = ql + 1
         # Find corner vertices
-        c11 = ql.long()
-        c12 = torch.stack((ql[:, 0], qu[:, 1]), -1).long()
-        c21 = torch.stack((qu[:, 0], ql[:, 1]), -1).long()
-        c22 = qu.long()
+        c11 = ql
+        c12 = torch.stack((ql[:, 0], qu[:, 1]), -1)
+        c21 = torch.stack((qu[:, 0], ql[:, 1]), -1)
+        c22 = qu
         c = torch.stack((c11, c12, c21, c22), 1)  # B,4,2
         m = ((c >= 0) & (c < R)).all(-1)  # B,4
         if direct:
@@ -267,7 +267,7 @@ class MultiLevelSparseHashEncoding(torch.nn.Module):
         w21 = (q[:, 0] - ql[:, 0]) * (qu[:, 1] - q[:, 1])
         w22 = (q[:, 0] - ql[:, 0]) * (q[:, 1] - ql[:, 1])
         w = torch.stack((w11, w12, w21, w22), 1)  # B,4
-
+        ids = ids.long()
         ids[~m] = n_encs  # point to last+1
 
         return ids, w, m
