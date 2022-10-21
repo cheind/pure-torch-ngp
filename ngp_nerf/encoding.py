@@ -5,6 +5,34 @@ import torch.nn.functional as F
 from . import hashing, pixels
 
 
+def compute_resolutions(
+    n_levels: int = 16,
+    min_res: int = 16,
+    max_res: int = 512,
+):
+    """Computes grid resolutions for each level
+
+    Equation 2 and 3 in the paper to determine the number of grid vertices
+    per resolution level
+
+    https://nvlabs.github.io/instant-ngp/assets/mueller2022instant.pdf
+    """
+    growth_factor = torch.exp(
+        (torch.log(torch.tensor(max_res)) - torch.log(torch.tensor(min_res)))
+        / (n_levels - 1)
+    )
+    resolutions = (
+        torch.floor(
+            torch.tensor(
+                [min_res * growth_factor**level for level in range(n_levels)]
+            )
+        )
+        .long()
+        .tolist()
+    )
+    return resolutions
+
+
 class MultiLevelHashEncoding(torch.nn.Module):
     """Multi Resolution Hash Encoding module.
 
@@ -56,23 +84,10 @@ class MultiLevelHashEncoding(torch.nn.Module):
         self.max_res = max_res
 
         with torch.no_grad():
-            # Equation 2 and 3 in the paper to determine the number of grid vertices
-            # per resolution level
-            growth_factor = torch.exp(
-                (
-                    torch.log(torch.tensor(self.max_res))
-                    - torch.log(torch.tensor(self.min_res))
-                )
-                / (self.n_levels - 1)
+            resolutions = compute_resolutions(
+                n_levels=n_levels, min_res=min_res, max_res=max_res
             )
-            resolutions = torch.floor(
-                torch.tensor(
-                    [
-                        self.min_res * growth_factor**level
-                        for level in range(self.n_levels)
-                    ]
-                )
-            ).long()
+
             # For each resolution R, we form a (E,R,R,R) levelmap whose vertices
             # contain a view of the global embedding vectors in first dimension.
             # The encoding vector indices are computed by hashing the spatial
@@ -96,9 +111,7 @@ class MultiLevelHashEncoding(torch.nn.Module):
                 self.register_parameter(
                     "level_emb_matrix" + str(level),
                     torch.nn.Parameter(
-                        torch.empty(n_embed_dims, n_level_encodings).uniform_(
-                            -1e-4, 1e-4
-                        )
+                        torch.empty(n_embed_dims, n_level_encodings).uniform_(-1, 1.0)
                     ),
                 )
 
@@ -138,16 +151,217 @@ class MultiLevelHashEncoding(torch.nn.Module):
         return f
 
 
+class MultiLevelSparseHashEncoding(torch.nn.Module):
+    """Multi Resolution Sparse Hash Encoding module.
+
+    Similar to `MultiLevelHashEncoding`, but computes hashing and bilinear
+    interpolation on the fly. Therfore brings memory advantages over
+    `MultiLevelHashEncoding` for large resolutions, but is slower at query
+    time.
+
+    Based on
+    https://nvlabs.github.io/instant-ngp/assets/mueller2022instant.pdf
+    """
+
+    def __init__(
+        self,
+        n_encodings: int = 2**14,
+        n_input_dims: int = 3,
+        n_embed_dims: int = 2,
+        n_levels: int = 16,
+        min_res: int = 16,
+        max_res: int = 512,
+    ) -> None:
+        """Initialize the module.
+
+        Params:
+            n_encodings: Number of encoding vectors per resolution level
+            n_input_dims: Number of query dimensions (2 or 3).
+            n_embed_dims: Number of embedding dimensions.
+            n_levels: Number of levels to generate
+            min_res: Lowest grid resolution (isotropic in each dimension)
+            max_res: Highest grid resolution (isotropic in each dimension)
+        """
+        super().__init__()
+
+        assert n_input_dims in [2, 3], "Only 2D and 3D inputs are supported"
+
+        self.n_levels = n_levels
+        self.n_input_dims = n_input_dims
+        self.n_embed_dims = n_embed_dims
+        self.n_encodings = n_encodings
+        self.min_res = min_res
+        self.max_res = max_res
+
+        with torch.no_grad():
+            # Equation 2 and 3 in the paper to determine the number of grid vertices
+            # per resolution level
+            self.resolutions = compute_resolutions(
+                n_levels=n_levels, min_res=min_res, max_res=max_res
+            )
+            self.direct_mappings = [
+                (res**self.n_input_dims < self.n_encodings)
+                for res in self.resolutions
+            ]
+            self.n_level_encodings = [
+                min(res**self.n_input_dims, self.n_encodings)
+                for res in self.resolutions
+            ]
+
+            for level, n_level_encodings in enumerate(self.n_level_encodings):
+                emb = torch.empty(n_embed_dims, n_level_encodings + 1).uniform_(
+                    -1.0, 1.0
+                )
+                emb[:, -1] = 0.0
+                self.register_parameter(
+                    "level_emb_matrix" + str(level),
+                    torch.nn.Parameter(emb),
+                )
+
+    def forward(self, x):
+        """Returns the multi-resolutional feature emebeddings for all query locations.
+
+        Params:
+            x: (B,2) or (B,3) array of query locations in value range [-1,+1].
+
+        Returns:
+            features: (B,L,E) array of features with dims (E)
+                for each query (B) and level (L).
+        """
+        B, D = x.shape
+        features = []
+        for level in range(self.n_levels):
+            embmatrix = getattr(self, "level_emb_matrix" + str(level))
+            ids, w, _ = self._find_embeddings(x, level)
+            f = embmatrix[:, ids]  # (E,B,4)
+            f = (embmatrix[:, ids] * w[None, ...]).sum(-1).permute(1, 0)
+            features.append(f)
+        f = torch.stack(features, 1)
+        return f
+
+    @torch.no_grad()
+    def _find_embeddings(self, q: torch.Tensor, level: int):
+        R = self.resolutions[level]
+        direct = self.direct_mappings[level]
+        n_encs = self.n_level_encodings[level]
+        # Normalized to pixel [-0.5,R+0.5]
+        q = (q + 1) * R * 0.5 - 0.5  # (B,C)
+        # Determine grid vertices
+        ql = q.floor()
+        qu = ql + 1
+        # Find corner vertices
+        c11 = ql.long()
+        c12 = torch.stack((ql[:, 0], qu[:, 1]), -1).long()
+        c21 = torch.stack((qu[:, 0], ql[:, 1]), -1).long()
+        c22 = qu.long()
+        c = torch.stack((c11, c12, c21, c22), 1)  # B,4,2
+        m = ((c >= 0) & (c < R)).all(-1)  # B,4
+        if direct:
+            ids = hashing.ravel_index(c, (R, R), n_encs)
+        else:
+            ids = hashing.xor_index_hashing(c, n_encs)
+
+        # Compute bilinear weights
+        w11 = (qu[:, 0] - q[:, 0]) * (qu[:, 1] - q[:, 1])
+        w12 = (qu[:, 0] - q[:, 0]) * (q[:, 1] - ql[:, 1])
+        w21 = (q[:, 0] - ql[:, 0]) * (qu[:, 1] - q[:, 1])
+        w22 = (q[:, 0] - ql[:, 0]) * (q[:, 1] - ql[:, 1])
+        w = torch.stack((w11, w12, w21, w22), 1)  # B,4
+
+        ids[~m] = n_encs  # point to last+1
+
+        return ids, w, m
+
+
 if __name__ == "__main__":
-    mlh3d = MultiLevelHashEncoding(
-        n_encodings=2**14,
-        n_input_dims=3,
-        n_embed_dims=2,
-        n_levels=8,
-        min_res=32,
-        max_res=512,
+    # mlh3d = MultiLevelHashEncoding(
+    #     n_encodings=2**14,
+    #     n_input_dims=3,
+    #     n_embed_dims=2,
+    #     n_levels=8,
+    #     min_res=32,
+    #     max_res=512,
+    # )
+    # f = mlh3d(torch.empty((10000, 3)).uniform_(-1, 1))
+
+    mlh_dense = MultiLevelHashEncoding(
+        n_encodings=2**8,
+        n_input_dims=2,
+        n_embed_dims=1,
+        n_levels=2,
+        min_res=4,
+        max_res=256,
     )
-    f = mlh3d(torch.empty((10000, 3)).uniform_(-1, 1))
+
+    mlh_sparse = MultiLevelSparseHashEncoding(
+        n_encodings=2**8,
+        n_input_dims=2,
+        n_embed_dims=1,
+        n_levels=2,
+        min_res=4,
+        max_res=256,
+    )
+    mlh_sparse.level_emb_matrix0.data[:, :-1].copy_(mlh_dense.level_emb_matrix0)
+    mlh_sparse.level_emb_matrix1.data[:, :-1].copy_(mlh_dense.level_emb_matrix1)
+
+    with torch.no_grad():
+        x = torch.empty((100, 2)).uniform_(-1, 1.0)
+        f_dense = mlh_dense(x)
+        f_sparse = mlh_sparse(x)
+        print((f_dense - f_sparse).abs().sum())
+
+        x = torch.tensor([[-1.0, -1.0], [1.0, -1.0], [1.0, -1.0], [1.0, 1.0]])
+        f_dense = mlh_dense(x)
+        f_sparse = mlh_sparse(x)
+        print((f_dense - f_sparse).abs().sum())
+
+        mlh_dense = MultiLevelHashEncoding(
+            n_encodings=2**20,
+            n_input_dims=2,
+            n_embed_dims=2,
+            n_levels=32,
+            min_res=64,
+            max_res=2**9,
+        ).cuda()
+
+        mlh_sparse = MultiLevelSparseHashEncoding(
+            n_encodings=2**20,
+            n_input_dims=2,
+            n_embed_dims=2,
+            n_levels=32,
+            min_res=64,
+            max_res=2**9,
+        ).cuda()
+
+        x = torch.empty((100000, 2)).uniform_(-1, 1.0).cuda()
+
+        import time
+
+        for _ in range(10):
+            mlh_dense(x)
+        torch.cuda.synchronize()
+
+        start = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
+
+        start.record()
+        for _ in range(10):
+            mlh_dense(x)
+        end.record()
+        torch.cuda.synchronize()
+        print(start.elapsed_time(end))
+
+        start = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
+        start.record()
+        for _ in range(10):
+            mlh_sparse(x)
+        end.record()
+        torch.cuda.synchronize()
+        print(start.elapsed_time(end))
+
+    # print(f_dense)
+    # print(f_sparse)
 
     # mlh2d = MultiLevelHashEncoding(
     #     n_encodings=2**14,
