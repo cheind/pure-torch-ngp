@@ -11,13 +11,15 @@ class MultiLevelHashEncoding(torch.nn.Module):
     Encodes 2D/3D query locations by extracting bilinear interpolated
     encoding vectors from varying grid resolutions.
 
-    This implementation uses a global encoding matrix and equal number
-    of encoding vectors for each resolution level. The module employs the
-    proposed hashing method to identify the indices of (potentially shared)
-    encoding vectors for each grid vertex. The grids (called levelmaps) are
-    treated as images/volumes and can be pre-computed. The query
-    locations are reshaped into a grid format compatible with `F.grid_sample`
-    to interpolate the encodings.
+    This implementation uses a an encoding matrix per layer with
+    encoding `n=min(res**dims,n_encodings)` encoding vectors. For each
+    grid vertex, the proposed hashing/direct mapping method is used
+    to identify the corresponding encoding indices. The indices are pre-computed
+    per level and stored as dense images/volumes. The query locations are reshaped
+    into a grid format compatible with `F.grid_sample` to interpolate the encodings.
+
+    Images/Volumes to be samples are stored densly and can thus lead
+    to huge memory consumptions independent of the number of queries.
 
     Based on
     https://nvlabs.github.io/instant-ngp/assets/mueller2022instant.pdf
