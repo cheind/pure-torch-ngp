@@ -238,7 +238,7 @@ class MultiLevelSparseHashEncoding(torch.nn.Module):
             embmatrix = getattr(self, "level_emb_matrix" + str(level))
             ids, w, _ = self._find_embeddings(x, level)
 
-            # f = embmatrix[:, ids]  # (B,4,E)
+            # (B,4,E) or (B,8,E) -> (B,E)
             f = (embmatrix[ids] * w[..., None]).sum(1)
             features.append(f)
         f = torch.stack(features, 1)
