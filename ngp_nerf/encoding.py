@@ -253,7 +253,7 @@ class MultiLevelSparseHashEncoding(torch.nn.Module):
         # Normalized to pixel [-0.5,R+0.5]
         x = (x + 1) * R * 0.5 - 0.5  # (B,C)
 
-        c, w, m = interpolation.linear_interpolate(x, res)
+        c, w, m = interpolation.linear_interpolate_info(x, res)
 
         if direct:
             ids = hashing.ravel_index(c, res, n_encs)
@@ -285,8 +285,8 @@ if __name__ == "__main__":
         max_res=256,
         init_scale=1.0,
     )
-    mlh_sparse.level_emb_matrix0.data[:-1:].copy_(mlh_dense.level_emb_matrix0.T)
-    mlh_sparse.level_emb_matrix1.data[:-1:].copy_(mlh_dense.level_emb_matrix1.T)
+    mlh_sparse.level_emb_matrix0.data[:-1].copy_(mlh_dense.level_emb_matrix0.T)
+    mlh_sparse.level_emb_matrix1.data[:-1].copy_(mlh_dense.level_emb_matrix1.T)
 
     with torch.no_grad():
         x = torch.empty((100, 2)).uniform_(-1, 1.0)
@@ -299,28 +299,67 @@ if __name__ == "__main__":
         f_sparse = mlh_sparse(x)
         print((f_dense - f_sparse).abs().sum())
 
-        mlh_dense = MultiLevelHashEncoding(
-            n_encodings=2**12,
-            n_input_dims=2,
-            n_embed_dims=2,
-            n_levels=32,
-            min_res=64,
-            max_res=2**9,
-        ).cuda()
+    # 3D
+    mlh_dense = MultiLevelHashEncoding(
+        n_encodings=2**8,
+        n_input_dims=3,
+        n_embed_dims=1,
+        n_levels=2,
+        min_res=4,
+        max_res=256,
+        init_scale=1.0,
+    )
 
-        mlh_sparse = MultiLevelSparseHashEncoding(
-            n_encodings=2**12,
-            n_input_dims=2,
-            n_embed_dims=2,
-            n_levels=32,
-            min_res=64,
-            max_res=2**9,
-        ).cuda()
+    mlh_sparse = MultiLevelSparseHashEncoding(
+        n_encodings=2**8,
+        n_input_dims=3,
+        n_embed_dims=1,
+        n_levels=2,
+        min_res=4,
+        max_res=256,
+        init_scale=1.0,
+    )
+    mlh_sparse.level_emb_matrix0.data[:-1].copy_(mlh_dense.level_emb_matrix0.T)
+    mlh_sparse.level_emb_matrix1.data[:-1].copy_(mlh_dense.level_emb_matrix1.T)
 
-        x = torch.empty((100000, 2)).uniform_(-1, 1.0).cuda()
+    with torch.no_grad():
+        x = torch.empty((100, 3)).uniform_(-1, 1.0)
+        f_dense = mlh_dense(x)
+        f_sparse = mlh_sparse(x)
+        print((f_dense - f_sparse).abs().sum())
 
-        import time
+        x = torch.tensor(
+            [[-1.0, -1.0, -1.0], [1.0, -1.0, 1.0], [1.0, -1.0, 1.0], [1.0, 1.0, 1.0]]
+        )
+        f_dense = mlh_dense(x)
+        f_sparse = mlh_sparse(x)
+        print((f_dense - f_sparse).abs().sum())
 
+    # Performance
+
+    mlh_dense = MultiLevelHashEncoding(
+        n_encodings=2**12,
+        n_input_dims=3,
+        n_embed_dims=2,
+        n_levels=32,
+        min_res=64,
+        max_res=2**8,
+    ).cuda()
+
+    mlh_sparse = MultiLevelSparseHashEncoding(
+        n_encodings=2**12,
+        n_input_dims=3,
+        n_embed_dims=2,
+        n_levels=32,
+        min_res=64,
+        max_res=2**8,
+    ).cuda()
+
+    x = torch.empty((100000, 3)).uniform_(-1, 1.0).cuda()
+
+    import time
+
+    with torch.no_grad():
         for _ in range(10):
             mlh_dense(x)
             mlh_sparse(x)
