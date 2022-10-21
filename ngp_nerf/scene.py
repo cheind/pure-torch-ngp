@@ -170,7 +170,7 @@ class MultiViewScene:
     def __init__(self) -> None:
         self.views: list[View] = []
         self.images: list[torch.Tensor] = []
-        self.image_masks: list[torch.Tensor] = []
+        self.image_alphas: list[torch.Tensor] = []
         self.aabb_minc: torch.Tensor = -torch.ones((3,))
         self.aabb_maxc: torch.Tensor = torch.ones((3,))
 
@@ -181,7 +181,7 @@ class MultiViewScene:
         """Loads scene information from nvidia compatible transforms.json"""
         self.views.clear()
         self.images.clear()
-        self.image_masks.clear()
+        self.image_alphas.clear()
 
         path = Path(path)
         assert path.is_file()
@@ -207,19 +207,31 @@ class MultiViewScene:
             img = torch.tensor(np.asarray(img)).float().permute(2, 0, 1) / 255.0
             C, H, W = img.shape
             if C == 4:
-                mask = img[-1] > 0.0
+                alpha = img[-1]
             else:
-                mask = img.new_ones((H, W), dtype=bool)
+                alpha = img.new_ones((H, W), dtype=float)
             self.images.append(img[:3].contiguous())
-            self.image_masks.append(mask.clone())
+            self.image_alphas.append(alpha.contiguous())
 
             # Handle extrinsics (convert from OpenGL to OpenCV camera
             # model: i.e look towards positive z)
             flip = torch.eye(4)
             flip[1, 1] = -1
             flip[2, 2] = -1
-            t = torch.tensor(frame["transform_matrix"])
-            t = t @ flip
+            t = torch.tensor(frame["transform_matrix"]).to(torch.float64)
+            if (torch.det(t[:3, :3]) - 1.0) > 1e-6:
+                print(f"Correcting rotation matrix for {str(imgpath)}")
+                res = torch.svd(t[:3, :3])
+                u, s, v = res
+                u = F.normalize(u, p=2, dim=0)
+                v = F.normalize(v, p=2, dim=0)
+                s[:] = 1.0
+                rot = u @ torch.diag(s) @ v.T
+                t[:3, :3] = rot
+
+            t = t.float() @ flip
+
+            # TODO: in fox scene some rotations are not exactly 1.
 
             view = View(K.clone(), t, (H, W)).to(device)
             self.views.append(view)
@@ -264,9 +276,9 @@ class MultiViewDataset(torch.utils.data.Dataset):
             view_indices = list(range(len(scene.views)))
 
         images = [scene.images[i] for i in view_indices]
-        masks = [scene.image_masks[i] for i in view_indices]
+        alphas = [scene.image_alphas[i] for i in view_indices]
         images = torch.stack(images, 0).permute(0, 2, 3, 1).reshape(-1, 3)
-        masks = torch.stack(masks, 0).view(-1)
+        alphas = torch.stack(alphas, 0).view(-1)
         origin, dir, tnear, tfar = [], [], [], []
         for idx in view_indices:
             v = scene.views[idx]
@@ -292,7 +304,7 @@ class MultiViewDataset(torch.utils.data.Dataset):
         # Select relevant
         self.thit = tnear < tfar
         self.images = images[self.thit].contiguous().float()
-        self.masks = masks[self.thit].contiguous().float()
+        self.alphas = alphas[self.thit].contiguous().float()
         self.origin = origin[self.thit].contiguous()
         self.dir = dir[self.thit].contiguous()
         self.tfar = tfar[self.thit].contiguous()
@@ -302,7 +314,7 @@ class MultiViewDataset(torch.utils.data.Dataset):
         """Return elements for all indices in idx."""
         return (
             self.images[idx],
-            self.masks[idx],
+            self.alphas[idx],
             self.origin[idx],
             self.dir[idx],
             self.tnear[idx],
@@ -337,15 +349,8 @@ class MultiViewDataset(torch.utils.data.Dataset):
 
 if __name__ == "__main__":
     scene = MultiViewScene()
-    scene.load_from_json("data/suzanne/transforms.json")
-    # scene.render_world()
-
-    ds = MultiViewDataset(scene)
-    sampler = ds.create_mini_batch_sampler(10)
-    loader = torch.utils.data.DataLoader(ds, sampler=sampler, shuffle=False)
-
-    (color, mask), (o, d, tn, tf) = next(iter(loader))
-    print(color.shape)
+    scene.load_from_json("data/fox/transforms.json")
+    scene.render_world()
 
     # # scene.render_setup()
     # scene.compute_train_info()
