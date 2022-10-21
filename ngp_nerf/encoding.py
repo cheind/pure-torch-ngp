@@ -209,10 +209,10 @@ class MultiLevelSparseHashEncoding(torch.nn.Module):
             ]
 
             for level, n_level_encodings in enumerate(self.n_level_encodings):
-                emb = torch.empty(n_embed_dims, n_level_encodings + 1).uniform_(
+                emb = torch.empty(n_level_encodings + 1, n_embed_dims).uniform_(
                     -1.0, 1.0
                 )
-                emb[:, -1] = 0.0
+                emb[-1, :] = 0.0
                 self.register_parameter(
                     "level_emb_matrix" + str(level),
                     torch.nn.Parameter(emb),
@@ -233,8 +233,9 @@ class MultiLevelSparseHashEncoding(torch.nn.Module):
         for level in range(self.n_levels):
             embmatrix = getattr(self, "level_emb_matrix" + str(level))
             ids, w, _ = self._find_embeddings(x, level)
-            f = embmatrix[:, ids]  # (E,B,4)
-            f = (embmatrix[:, ids] * w[None, ...]).sum(-1).permute(1, 0)
+
+            # f = embmatrix[:, ids]  # (B,4,E)
+            f = (embmatrix[ids] * w[..., None]).sum(1)
             features.append(f)
         f = torch.stack(features, 1)
         return f
@@ -247,14 +248,12 @@ class MultiLevelSparseHashEncoding(torch.nn.Module):
         # Normalized to pixel [-0.5,R+0.5]
         q = (q + 1) * R * 0.5 - 0.5  # (B,C)
         # Determine grid vertices
+        o = q.new_tensor([[0, 0], [0, 1], [1, 0], [1, 1]], dtype=int)
+
         ql = q.floor().int()
         qu = ql + 1
-        # Find corner vertices
-        c11 = ql
-        c12 = torch.stack((ql[:, 0], qu[:, 1]), -1)
-        c21 = torch.stack((qu[:, 0], ql[:, 1]), -1)
-        c22 = qu
-        c = torch.stack((c11, c12, c21, c22), 1)  # B,4,2
+        c = (ql.unsqueeze(1) + o[None, ...]).contiguous()
+
         m = ((c >= 0) & (c < R)).all(-1)  # B,4
         if direct:
             ids = hashing.ravel_index(c, (R, R), n_encs)
@@ -274,16 +273,6 @@ class MultiLevelSparseHashEncoding(torch.nn.Module):
 
 
 if __name__ == "__main__":
-    # mlh3d = MultiLevelHashEncoding(
-    #     n_encodings=2**14,
-    #     n_input_dims=3,
-    #     n_embed_dims=2,
-    #     n_levels=8,
-    #     min_res=32,
-    #     max_res=512,
-    # )
-    # f = mlh3d(torch.empty((10000, 3)).uniform_(-1, 1))
-
     mlh_dense = MultiLevelHashEncoding(
         n_encodings=2**8,
         n_input_dims=2,
@@ -301,8 +290,8 @@ if __name__ == "__main__":
         min_res=4,
         max_res=256,
     )
-    mlh_sparse.level_emb_matrix0.data[:, :-1].copy_(mlh_dense.level_emb_matrix0)
-    mlh_sparse.level_emb_matrix1.data[:, :-1].copy_(mlh_dense.level_emb_matrix1)
+    mlh_sparse.level_emb_matrix0.data[:-1:].copy_(mlh_dense.level_emb_matrix0.T)
+    mlh_sparse.level_emb_matrix1.data[:-1:].copy_(mlh_dense.level_emb_matrix1.T)
 
     with torch.no_grad():
         x = torch.empty((100, 2)).uniform_(-1, 1.0)
@@ -316,7 +305,7 @@ if __name__ == "__main__":
         print((f_dense - f_sparse).abs().sum())
 
         mlh_dense = MultiLevelHashEncoding(
-            n_encodings=2**20,
+            n_encodings=2**12,
             n_input_dims=2,
             n_embed_dims=2,
             n_levels=32,
@@ -325,7 +314,7 @@ if __name__ == "__main__":
         ).cuda()
 
         mlh_sparse = MultiLevelSparseHashEncoding(
-            n_encodings=2**20,
+            n_encodings=2**12,
             n_input_dims=2,
             n_embed_dims=2,
             n_levels=32,
@@ -339,6 +328,7 @@ if __name__ == "__main__":
 
         for _ in range(10):
             mlh_dense(x)
+            mlh_sparse(x)
         torch.cuda.synchronize()
 
         start = torch.cuda.Event(enable_timing=True)
@@ -349,7 +339,7 @@ if __name__ == "__main__":
             mlh_dense(x)
         end.record()
         torch.cuda.synchronize()
-        print(start.elapsed_time(end))
+        print(start.elapsed_time(end) / 10)
 
         start = torch.cuda.Event(enable_timing=True)
         end = torch.cuda.Event(enable_timing=True)
@@ -358,7 +348,7 @@ if __name__ == "__main__":
             mlh_sparse(x)
         end.record()
         torch.cuda.synchronize()
-        print(start.elapsed_time(end))
+        print(start.elapsed_time(end) / 10)
 
     # print(f_dense)
     # print(f_sparse)
