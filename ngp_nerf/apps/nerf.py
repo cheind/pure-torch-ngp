@@ -221,7 +221,7 @@ def render_test_scenes(
 if __name__ == "__main__":
     dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     scene = MultiViewScene()
-    scene.load_from_json("data/fox/transforms.json")
+    scene.load_from_json("data/suzanne/transforms.json")
     # scene.render_world()
     nerf = NeRF(
         3,
