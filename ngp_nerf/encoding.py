@@ -253,7 +253,7 @@ class MultiLevelSparseHashEncoding(torch.nn.Module):
         # Normalized to pixel [-0.5,R+0.5]
         x = (x + 1) * R * 0.5 - 0.5  # (B,C)
 
-        c, w, m = interpolation.linear_interpolate_info(x, res)
+        c, w, m = interpolation.compute_bilinear_params(x, res)
 
         if direct:
             ids = hashing.ravel_index(c, res, n_encs)
