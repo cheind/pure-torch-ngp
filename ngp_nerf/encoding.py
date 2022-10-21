@@ -2,7 +2,7 @@ import torch
 import torch.nn
 import torch.nn.functional as F
 
-from . import hashing, pixels
+from . import hashing, pixels, interpolation
 
 
 def compute_resolutions(
@@ -245,32 +245,21 @@ class MultiLevelSparseHashEncoding(torch.nn.Module):
         return f
 
     @torch.no_grad()
-    def _find_embeddings(self, q: torch.Tensor, level: int):
+    def _find_embeddings(self, x: torch.Tensor, level: int):
         R = self.resolutions[level]
         direct = self.direct_mappings[level]
         n_encs = self.n_level_encodings[level]
+        res = [R] * self.n_input_dims
         # Normalized to pixel [-0.5,R+0.5]
-        q = (q + 1) * R * 0.5 - 0.5  # (B,C)
-        # Determine grid vertices
-        o = q.new_tensor([[0, 0], [0, 1], [1, 0], [1, 1]], dtype=int)
+        x = (x + 1) * R * 0.5 - 0.5  # (B,C)
 
-        ql = q.floor().int()
-        qu = ql + 1
-        c = (ql.unsqueeze(1) + o[None, ...]).contiguous()
+        c, w, m = interpolation.linear_interpolate(x, res)
 
-        m = ((c >= 0) & (c < R)).all(-1)  # B,4
         if direct:
-            ids = hashing.ravel_index(c, (R, R), n_encs)
+            ids = hashing.ravel_index(c, res, n_encs)
         else:
             ids = hashing.xor_index_hashing(c, n_encs)
 
-        # Compute bilinear weights
-        w11 = (qu[:, 0] - q[:, 0]) * (qu[:, 1] - q[:, 1])
-        w12 = (qu[:, 0] - q[:, 0]) * (q[:, 1] - ql[:, 1])
-        w21 = (q[:, 0] - ql[:, 0]) * (qu[:, 1] - q[:, 1])
-        w22 = (q[:, 0] - ql[:, 0]) * (q[:, 1] - ql[:, 1])
-        w = torch.stack((w11, w12, w21, w22), 1)  # B,4
-        ids = ids.long()
         ids[~m] = n_encs  # point to last+1
 
         return ids, w, m
@@ -284,6 +273,7 @@ if __name__ == "__main__":
         n_levels=2,
         min_res=4,
         max_res=256,
+        init_scale=1.0,
     )
 
     mlh_sparse = MultiLevelSparseHashEncoding(
@@ -293,6 +283,7 @@ if __name__ == "__main__":
         n_levels=2,
         min_res=4,
         max_res=256,
+        init_scale=1.0,
     )
     mlh_sparse.level_emb_matrix0.data[:-1:].copy_(mlh_dense.level_emb_matrix0.T)
     mlh_sparse.level_emb_matrix1.data[:-1:].copy_(mlh_dense.level_emb_matrix1.T)
