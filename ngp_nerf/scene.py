@@ -1,6 +1,8 @@
+from operator import index
 import torch
 import torch.nn
 import torch.nn.functional as F
+import torch.utils.data
 import json
 import numpy as np
 from pathlib import Path
@@ -68,13 +70,13 @@ class View(torch.nn.Module):
         at ray/radiance field exit.
 
         Returns:
-            out: (H,W,4) RGBA image in [0..1] range. Note, we have C
+            out: (4,H,W) RGBA image in [0..1] range. Note, we have C
                 in the last dimension.
         """
 
         # Compute world rays
         origins, dirs = self.world_rays()
-        origins = origins.view(-1, 3)
+        origins = origins.expand_as(dirs).view(-1, 3)
         dirs = dirs.view(-1, 3)
 
         # Find limits of intersection with radiance field bounds
@@ -126,10 +128,45 @@ class View(torch.nn.Module):
         outflat[hit, :3] = colors
         outflat[hit, 3] = alphas
 
-        return out
+        return out.permute(2, 0, 1)
+
+    def plot_image(
+        self,
+        img: torch.Tensor,
+        use_alpha: bool = True,
+        native_size: bool = False,
+        checkerboard_bg: bool = True,
+    ):
+        import matplotlib.pyplot as plt
+
+        H, W = img.shape[-2:]
+        C = 4 if use_alpha else 3
+
+        figsize = plt.figaspect(H / W)  # uses mpl.rcParams['figure.figsize'][1]
+        dpi = W // figsize[0] if native_size else None
+        fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+        if native_size:
+            fig.subplots_adjust(0, 0, 1, 1)
+        if use_alpha and checkerboard_bg:
+            ax.imshow(self._checkerboard((H, W), k=max(H, W) // 100), cmap="gray")
+        ax.imshow(img[:C].permute(1, 2, 0).cpu())
+
+        return fig, ax
+
+    def _checkerboard(self, shape: tuple[int, ...], k: int) -> torch.Tensor:
+        """See https://stackoverflow.com/questions/72874737"""
+        # nearest h,w multiple of k
+        H = shape[0] + shape[0] % k
+        W = shape[1] + shape[1] % k
+        indices = torch.stack(
+            torch.meshgrid(torch.arange(H // k), torch.arange(W // k), indexing="ij")
+        )
+        base = indices.sum(dim=0) % 2
+        x = base.repeat_interleave(k, 0).repeat_interleave(k, 1)
+        return x[: shape[0], : shape[1]]
 
 
-class MultiViewScene2:
+class MultiViewScene:
     def __init__(self) -> None:
         self.views: list[View] = []
         self.images: list[torch.Tensor] = []
@@ -211,144 +248,105 @@ class MultiViewScene2:
         ax.autoscale()
         plt.show()
 
-
-class MultiViewScene:
-    def __init__(self) -> None:
-        self.images: list[torch.Tensor] = []
-        self.image_masks: list[torch.Tensor] = []
-        self.K = torch.eye(3)
-        self.t_world_cam: list[torch.Tensor] = []
-        self.aabb_minc: torch.Tensor = -torch.ones((3,))
-        self.aabb_maxc: torch.Tensor = torch.ones((3,))
-
-    def load_from_json(self, path: str):
-        """Loads scene information from nvidia compatible transforms.json"""
-        path = Path(path)
-        assert path.is_file()
-        with open(path, "r") as f:
-            data = json.load(f)
-
-        self.K[0, 0] = data["fl_x"]
-        self.K[1, 1] = data["fl_y"]
-        self.K[0, 2] = data["cx"]
-        self.K[1, 2] = data["cy"]
-
-        self.aabb_minc = -torch.ones((3,)) * data["aabb_scale"] * 0.5
-        self.aabb_maxc = torch.ones((3,)) * data["aabb_scale"] * 0.5
-
-        for frame in data["frames"]:
-            # Handle image
-            imgpath = path.parent / frame["file_path"]
-            if not imgpath.is_file():
-                print(f"Skipping {str(imgpath)}")
-                continue
-            assert imgpath.is_file()
-            img = Image.open(imgpath)
-            img = torch.tensor(np.asarray(img)).float().permute(2, 0, 1) / 255.0
-            C, H, W = img.shape
-            if C == 4:
-                mask = img[-1] > 0.0
-            else:
-                mask = img.new_ones((H, W), dtype=bool)
-            self.images.append(img[:3].contiguous())
-            self.image_masks.append(mask.clone())
-
-            # Handle extrinsics (convert from OpenGL to OpenCV camera
-            # model: i.e look towards positive z)
-            flip = torch.eye(4)
-            flip[1, 1] = -1
-            flip[2, 2] = -1
-            t = torch.tensor(frame["transform_matrix"])
-            t = t @ flip
-            self.t_world_cam.append(t)
-
-    def compute_train_info(self) -> dict[str, torch.Tensor]:
-        """Returns world rays + color information for all views.
-
-        Returns:
-            A dictionary with the following keys
-                K: (3,3) camera intrinsics
-                extrinsics: (B,4,4) cam in world matrices
-                origins: (B,H,W,3) camera origins in world
-                directions: (B,H,W,3) normalized ray directions in world
-                tnear: (B,H,W) ray tnear
-                tfar: (B,H,W) ray tfar
-                colors: (B,H,W,C) color images
-                masks: (B,H,W) color alpha masks
-        """
-        ret = {}
-        ret["colors"] = torch.stack(self.images, 0).permute(0, 2, 3, 1)
-        ret["masks"] = torch.stack(self.image_masks, 0)
-        ret["extrinsics"] = torch.stack(self.t_world_cam, 0)
-        N, H, W, C = ret["colors"].shape
-
-        ret["origins"] = (
-            ret["extrinsics"][:, :3, 3].unsqueeze(1).unsqueeze(1).tile(1, H, W, 1)
-        )
-
-        # TODO: do this batched
-        dirs = []
-        cpts = cameras.image_points(self.K, self.images[0].shape[1:])
-        crays = F.normalize(cpts, p=2, dim=-1)
-        for i in range(N):
-            # note, dehom here leads to infs
-            dirs.append((linalg.hom(crays, 0) @ self.t_world_cam[i].T)[..., :3])
-        dirs = torch.stack(dirs, 0)
-        ret["directions"] = dirs
-
-        tnear, tfar = rays.intersect_rays_aabb(
-            ret["origins"].view(-1, 3),
-            ret["directions"].view(-1, 3),
-            self.aabb_minc,
-            self.aabb_maxc,
-        )
-
-        ret["tnear"] = tnear.view(N, H, W)
-        ret["tfar"] = tfar.view(N, H, W)
-
-        # should match:
-        # print(rays[0, H // 2, W // 2], self.t_world_cam[0][:3, 2])
-
-        return ret
-
-    def render_setup(self):
-        import matplotlib.pyplot as plt
-        import pytransform3d.camera as pc
-        import pytransform3d.transformations as pt
-        from pytransform3d.plot_utils import plot_box
-
-        ax = pt.plot_transform(s=0.5)
-        for i in range(len(self.images)):
-            H, W = self.images[i].shape[1:]
-
-            ax = pt.plot_transform(A2B=self.t_world_cam[i].numpy(), s=0.5)
-            pc.plot_camera(
-                ax,
-                cam2world=self.t_world_cam[i].numpy(),
-                M=self.K.numpy(),
-                sensor_size=(W, H),
-                virtual_image_distance=1.0,
-                linewidth=0.25,
-            )
-        plot_box(ax, (self.aabb_maxc - self.aabb_minc).numpy())
-        ax.set_aspect("equal")
-        ax.relim()  # make sure all the data fits
-        ax.autoscale()
-        plt.show()
-
     def __repr__(self):
         return (
             f"MultiViewScene(nviews={len(self.images)}, shape={self.images[0].shape})"
         )
 
 
+class MultiViewDataset(torch.utils.data.Dataset):
+    def __init__(self, scene: MultiViewScene, view_indices: list[int] = None):
+        self.scene = scene
+        self._prepare_elements(scene, view_indices)
+
+    def _prepare_elements(self, scene: MultiViewScene, view_indices: list[int]):
+        if view_indices is None:
+            view_indices = list(range(len(scene.views)))
+
+        images = [scene.images[i] for i in view_indices]
+        masks = [scene.image_masks[i] for i in view_indices]
+        images = torch.stack(images, 0).permute(0, 2, 3, 1).reshape(-1, 3)
+        masks = torch.stack(masks, 0).view(-1)
+        origin, dir, tnear, tfar = [], [], [], []
+        for idx in view_indices:
+            v = scene.views[idx]
+            o, d = v.world_rays()
+            o = o.expand_as(d)
+            d = d.view(-1, 3)
+            o = o.view(-1, 3)
+            tn, tf = rays.intersect_rays_aabb(
+                o,
+                d,
+                scene.aabb_minc,
+                scene.aabb_maxc,
+            )
+            origin.append(o)
+            dir.append(d)
+            tnear.append(tn)
+            tfar.append(tf)
+        tnear = torch.cat(tnear, 0)
+        tfar = torch.cat(tfar, 0)
+        origin = torch.cat(origin, 0)
+        dir = torch.cat(dir, 0)
+
+        # Select relevant
+        self.thit = tnear < tfar
+        self.images = images[self.thit].contiguous().float()
+        self.masks = masks[self.thit].contiguous().float()
+        self.origin = origin[self.thit].contiguous()
+        self.dir = dir[self.thit].contiguous()
+        self.tfar = tfar[self.thit].contiguous()
+        self.tnear = tnear[self.thit].contiguous()
+
+    def __getitem__(self, idx):
+        """Return elements for all indices in idx."""
+        return (
+            self.images[idx],
+            self.masks[idx],
+            self.origin[idx],
+            self.dir[idx],
+            self.tnear[idx],
+            self.tfar[idx],
+        )
+
+    def __len__(self):
+        return self.images.shape[0]
+
+    def create_mini_batch_sampler(
+        self, batch_size: int, random: bool = True
+    ) -> torch.utils.data.Sampler:
+        """Returns a sampler that queries a mini-batch of indices
+        from the dataset at once.
+
+        When used in conjuncation with a dataloader the resulting
+        dimensions will be (B,M,...) where B is the batch size of
+        the dataload and M is the mini-batch size.
+        """
+
+        sampler = (
+            torch.utils.data.sampler.RandomSampler(self)
+            if random
+            else torch.utils.data.sampler.SequentialSampler(self)
+        )
+        return torch.utils.data.sampler.BatchSampler(
+            sampler,
+            batch_size=batch_size,
+            drop_last=True,
+        )
+
+
 if __name__ == "__main__":
     scene = MultiViewScene()
     scene.load_from_json("data/suzanne/transforms.json")
+    # scene.render_world()
 
-    scene = MultiViewScene2()
-    scene.load_from_json("data/suzanne/transforms.json")
-    scene.render_world()
+    ds = MultiViewDataset(scene)
+    sampler = ds.create_mini_batch_sampler(10)
+    loader = torch.utils.data.DataLoader(ds, sampler=sampler, shuffle=False)
+
+    (color, mask), (o, d, tn, tf) = next(iter(loader))
+    print(color.shape)
+
     # # scene.render_setup()
     # scene.compute_train_info()
     # print(scene)
