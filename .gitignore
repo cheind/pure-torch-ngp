@@ -130,5 +130,6 @@ dmypy.json
 *.blend1
 
 
+data/fox/
 tmp/*
 !tmp/__keep__
