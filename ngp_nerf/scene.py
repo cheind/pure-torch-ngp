@@ -144,11 +144,11 @@ class View(torch.nn.Module):
         C = 4 if use_alpha else 3
 
         if ax is None:
-        figsize = plt.figaspect(H / W)  # uses mpl.rcParams['figure.figsize'][1]
-        dpi = W // figsize[0] if native_size else None
-        fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
-        if native_size:
-            fig.subplots_adjust(0, 0, 1, 1)
+            figsize = plt.figaspect(H / W)  # uses mpl.rcParams['figure.figsize'][1]
+            dpi = W // figsize[0] if native_size else None
+            fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+            if native_size:
+                fig.subplots_adjust(0, 0, 1, 1)
         else:
             fig = plt.gcf()
         if use_alpha and checkerboard_bg:
@@ -180,6 +180,28 @@ class MultiViewScene:
 
     def add_view(self, v: View):
         self.views.append(v)
+
+    def split(self, ratio: float) -> tuple["MultiViewScene", "MultiViewScene"]:
+        """Split scene views for generating train/val datasets"""
+        ids = torch.randperm(len(self.views))
+        left_part = int(len(self.views) * ratio)
+        if left_part == len(self.views):
+            left_part -= 1
+        left = MultiViewScene()
+        left.aabb_minc = self.aabb_minc.clone()
+        left.aabb_maxc = self.aabb_maxc.clone()
+        left.images = [self.images[i] for i in ids[:left_part]]
+        left.image_alphas = [self.image_alphas[i] for i in ids[:left_part]]
+        left.views = [self.views[i] for i in ids[:left_part]]
+
+        right = MultiViewScene()
+        right.aabb_minc = self.aabb_minc.clone()
+        right.aabb_maxc = self.aabb_maxc.clone()
+        right.images = [self.images[i] for i in ids[left_part:]]
+        right.image_alphas = [self.image_alphas[i] for i in ids[left_part:]]
+        right.views = [self.views[i] for i in ids[left_part:]]
+
+        return left, right
 
     def load_from_json(self, path: str, device: torch.device = None):
         """Loads scene information from nvidia compatible transforms.json"""
