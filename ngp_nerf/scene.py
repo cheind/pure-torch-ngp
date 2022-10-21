@@ -136,17 +136,21 @@ class View(torch.nn.Module):
         use_alpha: bool = True,
         native_size: bool = False,
         checkerboard_bg: bool = True,
+        ax=None,
     ):
         import matplotlib.pyplot as plt
 
         H, W = img.shape[-2:]
         C = 4 if use_alpha else 3
 
+        if ax is None:
         figsize = plt.figaspect(H / W)  # uses mpl.rcParams['figure.figsize'][1]
         dpi = W // figsize[0] if native_size else None
         fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
         if native_size:
             fig.subplots_adjust(0, 0, 1, 1)
+        else:
+            fig = plt.gcf()
         if use_alpha and checkerboard_bg:
             ax.imshow(self._checkerboard((H, W), k=max(H, W) // 100), cmap="gray")
         ax.imshow(img[:C].permute(1, 2, 0).cpu())
