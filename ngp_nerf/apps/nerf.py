@@ -150,6 +150,7 @@ def train(
                     ts,
                     tfar,
                 )
+                # TODO: the following is not quite correct, we should use T(i)*alpha(i)
                 pred_alpha = 1.0 - pred_transm[:, -1]
                 pred_colors = pred_colors * pred_alpha[..., None] + noise * (
                     1 - pred_alpha[..., None]
