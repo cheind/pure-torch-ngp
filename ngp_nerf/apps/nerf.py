@@ -139,6 +139,7 @@ def train(
             color = color * alpha[..., None] + noise * (1 - alpha[..., None])
 
             with torch.cuda.amp.autocast():
+                # TODO: merge this block with v.render_image
                 ts = rays.sample_rays_uniformly(tnear, tfar, n_samples)
                 xyz = o[:, None] + ts[..., None] * d[:, None]  # (B,T,3)
                 nxyz = rays.normalize_xyz_in_aabb(xyz, aabb_min, aabb_max)
