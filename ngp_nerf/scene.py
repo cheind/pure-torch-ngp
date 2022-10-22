@@ -119,6 +119,7 @@ class View(torch.nn.Module):
                 tfar[batch_ids],
             )
             color_parts.append(pred_colors)
+            # TODO: not quite correct- should be 1.0 - T(i)*alpha(i)
             alpha_parts.append(1.0 - pred_transm[:, -1])
 
         colors = torch.cat(color_parts, 0)
