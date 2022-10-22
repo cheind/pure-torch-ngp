@@ -1,6 +1,8 @@
 import torch
 from typing import Callable
 
+from . import pixels
+
 """Protocol of a spatial radiance field"""
 RadianceField = Callable[[torch.Tensor], tuple[torch.Tensor, torch.Tensor]]
 
@@ -49,3 +51,35 @@ def integrate_path(
     final_colors = (acc_transm[..., None] * alpha[..., None] * color).sum(1)
 
     return final_colors, acc_transm, alpha
+
+
+def rasterize_field(
+    nerf: RadianceField,
+    shape: tuple[int, ...],
+    dev: torch.device,
+    batch_size: int = 2**16,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Evaluates the radiance field at rasterized grid locations.
+
+    Params:
+        nerf: radiance field
+        shape: desired resolution of rasterization in each dimension
+        dev: computation device
+        batch_size: max grid locations per batch
+
+    Returns:
+        sigma: density values with shape `shape`
+        rgb: color values with shape `shape + (3,)`
+    """
+    xyz = pixels.generate_grid_coords(shape)
+    nxyz = pixels.normalize_coords(xyz).view(-1, 3)
+
+    rgbs = []
+    densities = []
+    for batch in nxyz.split(batch_size):
+        d, rgb = nerf(batch.to(dev))
+        rgbs.append(rgb)
+        densities.append(d)
+    rgbs = torch.cat(rgbs, 0).view(*shape, 3)
+    densities = torch.cat(densities, 0).view(*shape)
+    return densities, rgbs
