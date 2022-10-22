@@ -240,11 +240,8 @@ class MultiViewScene:
             self.images.append(img[:3].contiguous())
             self.image_alphas.append(alpha.contiguous())
 
-            # Handle extrinsics (convert from OpenGL to OpenCV camera
-            # model: i.e look towards positive z)
-            flip = torch.eye(4)
-            flip[1, 1] = -1
-            flip[2, 2] = -1
+            # Correct non-orthonormal rotations. That's the case for some
+            # frames of the fox-dataset.
             t = torch.tensor(frame["transform_matrix"]).to(torch.float64)
             if (torch.det(t[:3, :3]) - 1.0) > 1e-6:
                 print(f"Correcting rotation matrix for {str(imgpath)}")
@@ -256,9 +253,13 @@ class MultiViewScene:
                 rot = u @ torch.diag(s) @ v.T
                 t[:3, :3] = rot
 
-            t = t.float() @ flip
+            # Handle extrinsics (convert from OpenGL to OpenCV camera
+            # model: i.e look towards positive z)
+            flip = torch.eye(4)
+            flip[1, 1] = -1
+            flip[2, 2] = -1
 
-            # TODO: in fox scene some rotations are not exactly 1.
+            t = t.float() @ flip
 
             view = View(K.clone(), t, (H, W)).to(device)
             self.views.append(view)
