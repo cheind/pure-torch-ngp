@@ -251,7 +251,7 @@ if __name__ == "__main__":
     # train_scene.render_world()
     # test_scene.render_world()
 
-    train_time = 60 * 1
+    train_time = 60 * 3
     train(
         nerf,
         train_scene,
@@ -272,4 +272,11 @@ if __name__ == "__main__":
         show=True,
     )
 
-    torch.save([nerf_kwargs, nerf.state_dict()], "tmp/nerf.pth")
+    torch.save(
+        [
+            nerf_kwargs,
+            nerf.state_dict(),
+            [scene.aabb_minc.tolist(), scene.aabb_maxc.tolist()],
+        ],
+        "tmp/nerf.pth",
+    )

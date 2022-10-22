@@ -7,14 +7,14 @@ from ngp_nerf import radiance
 
 if __name__ == "__main__":
     dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    nerf_kwargs, state_dict = torch.load("tmp/nerf.pth")
+    nerf_kwargs, state_dict, aabb = torch.load("tmp/nerf.pth")
     nerf = NeRF(**nerf_kwargs)
     nerf.load_state_dict(state_dict)
     nerf = nerf.to(dev).eval()
 
     with torch.no_grad():
         d, rgb = radiance.rasterize_field(
-            nerf, (128, 128, 128), dev=dev, batch_size=2**16
+            nerf, (256, 256, 256), dev=dev, batch_size=2**16
         )
         rgbd = torch.cat((rgb, d.unsqueeze(-1)), -1).cpu()
 
