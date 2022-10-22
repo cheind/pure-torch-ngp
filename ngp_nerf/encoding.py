@@ -336,10 +336,9 @@ class MultiLevelHybridHashEncoding(torch.nn.Module):
                 )
             else:
                 # Add extra encoding that will attract all locs outside.
-                emb = torch.empty(li.n_encodings + 1, n_embed_dims).uniform_(
+                emb = torch.empty(li.n_encodings, n_embed_dims).uniform_(
                     -init_scale, init_scale
                 )
-                emb[-1, :] = 0.0  # for simulation zero-padding
                 self.register_parameter(
                     "level_emb_matrix" + str(level),
                     torch.nn.Parameter(emb),
@@ -426,8 +425,10 @@ class MultiLevelHybridHashEncoding(torch.nn.Module):
         else:
             ids = hashing.ravel_index(c, li.shape, li.n_encodings)
 
-        # Point outside elements to terminal element
-        ids[~m] = li.n_encodings  # point to last+1
+        # Point outside elements to the first element, but set
+        # all weights zero to simulate zero-padding.
+        w[~m] = 0.0
+        ids[~m] = 0
         return ids, w
 
 
@@ -465,7 +466,7 @@ if __name__ == "__main__":
         init_scale=1.0,
     )
     mlh_hybrid.level_emb_matrix0.data.copy_(mlh_dense.level_emb_matrix0)
-    mlh_hybrid.level_emb_matrix1.data[:-1].copy_(mlh_dense.level_emb_matrix1.T)
+    mlh_hybrid.level_emb_matrix1.data.copy_(mlh_dense.level_emb_matrix1.T)
 
     with torch.no_grad():
         x = torch.empty((100, 2)).uniform_(-1, 1.0)
@@ -516,7 +517,7 @@ if __name__ == "__main__":
         init_scale=1.0,
     )
     mlh_hybrid.level_emb_matrix0.data.copy_(mlh_dense.level_emb_matrix0)
-    mlh_hybrid.level_emb_matrix1.data[:-1].copy_(mlh_dense.level_emb_matrix1.T)
+    mlh_hybrid.level_emb_matrix1.data.copy_(mlh_dense.level_emb_matrix1.T)
 
     with torch.no_grad():
         x = torch.empty((100, 3)).uniform_(-1, 1.0)
