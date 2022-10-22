@@ -227,8 +227,8 @@ if __name__ == "__main__":
     scene = MultiViewScene()
     scene.load_from_json("data/suzanne/transforms.json")
     # scene.render_world()
-    nerf = NeRF(
-        3,
+    nerf_kwargs = dict(
+        n_colors=3,
         n_hidden=64,
         n_encodings=2**14,
         n_levels=32,
@@ -236,7 +236,8 @@ if __name__ == "__main__":
         max_res=256,  # can now specify much larger resolutions due to hybrid approach
         max_n_dense=256**3,
         is_hdr=False,
-    ).to(dev)
+    )
+    nerf = NeRF(**nerf_kwargs).to(dev)
 
     train_scene, test_scene = scene.split(0.85)
 
@@ -250,7 +251,7 @@ if __name__ == "__main__":
     # train_scene.render_world()
     # test_scene.render_world()
 
-    train_time = 60 * 3
+    train_time = 60 * 1
     train(
         nerf,
         train_scene,
@@ -270,3 +271,5 @@ if __name__ == "__main__":
         t_elapsed=train_time,
         show=True,
     )
+
+    torch.save([nerf_kwargs, nerf.state_dict()], "tmp/nerf.pth")
