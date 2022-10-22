@@ -8,7 +8,7 @@ import time
 
 from ngp_nerf import rays, radiance
 
-from ..encoding import MultiLevelHashEncoding
+from ..encoding import MultiLevelHybridHashEncoding
 from ..scene import MultiViewScene, MultiViewDataset
 
 
@@ -21,17 +21,19 @@ class NeRF(torch.nn.Module):
         n_levels: int,
         min_res: int,
         max_res: int,
+        max_n_dense: int,
         is_hdr: bool = False,
     ) -> None:
         super().__init__()
 
-        self.pos_encoder = MultiLevelHashEncoding(
+        self.pos_encoder = MultiLevelHybridHashEncoding(
             n_encodings=n_encodings,
             n_input_dims=3,
             n_embed_dims=2,
             n_levels=n_levels,
             min_res=min_res,
             max_res=max_res,
+            max_n_dense=max_n_dense,
         )
         n_enc_features = self.pos_encoder.n_levels * self.pos_encoder.n_embed_dims
         self.is_hdr = is_hdr
@@ -231,7 +233,8 @@ if __name__ == "__main__":
         n_encodings=2**14,
         n_levels=32,
         min_res=16,
-        max_res=256,
+        max_res=256,  # can now specify much larger resolutions due to hybrid approach
+        max_n_dense=256**3,
         is_hdr=False,
     ).to(dev)
 
