@@ -25,10 +25,11 @@ view = canvas.central_widget.add_view()
 volume1 = scene.visuals.Volume(
     vol1,
     parent=view.scene,
-    threshold=0.225,
+    threshold=0.0,
     method="translucent",
     clim=(0.0, 1.0),
     interpolation="linear",
+    relative_step_size=0.1,
 )
 # volume1.transform = scene.STTransform(translate=(64, 64, 0))
 # volume2 = scene.visuals.Volume(vol2, parent=view.scene, threshold=0.2)
@@ -67,13 +68,14 @@ class TransGrays(BaseColormap):
 
 # Setup colormap iterators
 opaque_cmaps = cycle(get_colormaps())
-translucent_cmaps = cycle([TransFire(), TransGrays()])
+translucent_cmaps = cycle([TransGrays(), TransFire()])
 opaque_cmap = next(opaque_cmaps)
 translucent_cmap = next(translucent_cmaps)
 
 interp_methods = cycle(volume1.interpolation_methods)
 interp = next(interp_methods)
 
+volume1.cmap = translucent_cmap
 
 # Implement axis connection with cam2
 @canvas.events.mouse_move.connect
