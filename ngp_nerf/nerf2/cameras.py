@@ -92,42 +92,6 @@ class BaseCamera(torch.nn.Module):
         xyz = torch.cat((xy, depth), -1)
         return xyz
 
-    def world_rays(
-        self, uv: torch.Tensor = None, normalize_dirs: bool = True
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Returns eye-ray parameter in world frame for each pixel specified.
-
-        Depending on the parameter `normalize_dirs` the semantics of tnear,tfar
-        changes. When normalize_dirs is false,  tnear and tfar can be interpreted
-        as distance to camera parallel to image plane.
-
-        Params:
-            uv: (N,...,2) uv coordinates to generate rays for. If not specified,
-                defaults to all grid coordiantes.
-            normalize_dirs: wether to normalize ray directions to unit length
-
-        Returns:
-            ray_origin: (N,...,3) ray origins
-            ray_dir: (N,...,3) ray directions
-        """
-        if uv is None:
-            uv = self.uv_grid()
-        N = self.focal_length.shape[0]
-        mbatch = uv.shape[1:-1]
-        mbatch_ones = (1,) * len(mbatch)
-
-        rot = self.R.view((N,) + mbatch_ones + (3, 3))
-        trans = self.T.view((N,) + mbatch_ones + (3,))
-        xyz = self.unproject_uv(uv, depth=1.0)
-        ray_dir = (rot @ xyz.unsqueeze(-1)).squeeze(-1)
-
-        if normalize_dirs:
-            F.normalize(ray_dir, p=2, dim=-1)
-
-        ray_origin = trans.expand_as(ray_dir)
-
-        return ray_origin, ray_dir
-
 
 class Camera(BaseCamera):
     """A single perspective camera.
