@@ -47,6 +47,22 @@ def world_ray_from_pixel(
     return ray_origin, ray_dir, ray_tnear, ray_tfar
 
 
+@torch.jit.script
+def evaluate_ray(
+    ray_origin: torch.Tensor,
+    ray_dir: torch.Tensor,
+    ray_t: torch.Tensor,
+) -> torch.Tensor:
+    """Evaluate rays at a specific parameter.
+
+    Params:
+        ray_origin: (N,...,3) ray origins
+        ray_dir: (N,...,3) ray directions
+        ray_t: (N,...,1) ray eval parameters
+    """
+    return ray_origin + ray_t * ray_dir
+
+
 def intersect_ray_aabb(
     ray_origin: torch.Tensor,
     ray_dir: torch.Tensor,

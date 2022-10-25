@@ -167,3 +167,14 @@ def test_convert_world_to_box_normalized():
     assert_close(nxyz[1, 0, 1], torch.tensor([1.0, -1.0, 1.0]))
     assert_close(nxyz[1, 1, 0], torch.tensor([-1.0, 1.0, 1.0]))
     assert_close(nxyz[1, 1, 1], torch.tensor([1.0, 1.0, 1.0]))
+
+
+def test_ray_evaluate():
+    o = torch.tensor([[2.0, 0.5, 0.0]]).expand(10, 3)
+    d = torch.tensor([[-1.0, 0.0, 0.0]]).expand(10, 3)
+    t = torch.linspace(0, 2.0, 10).unsqueeze(-1)
+
+    x = geo.evaluate_ray(o, d, t)
+    assert_close(x[..., 0], torch.linspace(2.0, 0.0, 10))
+    assert_close(x[..., 1], torch.tensor([0.5]).expand(10))
+    assert_close(x[..., 2], torch.tensor([0.0]).expand(10))
