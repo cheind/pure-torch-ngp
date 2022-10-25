@@ -34,8 +34,6 @@ def integrate_path(
         https://arxiv.org/pdf/2003.08934.pdf
     """
 
-    *batch_shape, T, C = color.shape
-
     # delta (N,...,T)
     # delta[...,i] is defined as the segment length
     # between ts[...,i+1] and ts[...,i]
