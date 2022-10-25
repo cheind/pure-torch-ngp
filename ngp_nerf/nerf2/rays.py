@@ -1,10 +1,9 @@
 import torch
-import torch.nn.functional as F
 
 from .cameras import BaseCamera
 
 
-def world_rays(
+def world_ray(
     cam: BaseCamera, uv: torch.Tensor = None, normalize_dirs: bool = False
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Returns camera rays for each pixel specified in world the frame.
@@ -48,7 +47,7 @@ def world_rays(
     return ray_origin, ray_dir, ray_tnear, ray_tfar
 
 
-def intersect_rays_aabb(
+def intersect_ray_aabb(
     ray_origin: torch.Tensor,
     ray_dir: torch.Tensor,
     ray_tnear: torch.Tensor,
@@ -85,3 +84,38 @@ def intersect_rays_aabb(
     tfar = torch.min(tfar, ray_tfar)
 
     return tnear, tfar
+
+
+def sample_ray_step_stratified(
+    ray_tnear: torch.Tensor, ray_tfar: torch.Tensor, n_bins: int
+) -> torch.Tensor:
+    """Creates stratified ray step samples between tnear/tfar.
+
+    The returned samples per ray are guaranteed to be
+    sorted in ascending order.
+
+    Params:
+        ray_tnear: (N,...,1) ray start
+        ray_tfar: (N,...,1) ray ends
+        n_bins: number of strata
+
+    Returns:
+        tsamples: (N,...,n_bins)
+
+    Based on:
+        NeRF: Representing Scenes as
+        Neural Radiance Fields for View Synthesis
+        https://arxiv.org/pdf/2003.08934.pdf
+        https://en.wikipedia.org/wiki/Stratified_sampling
+    """
+    dev = ray_tnear.device
+    dtype = ray_tnear.dtype
+    batch_shape = ray_tnear.shape[:-1]
+    batch_ones = (1,) * len(batch_shape)
+
+    td = ray_tfar - ray_tnear
+    u = ray_tnear.new_empty(batch_shape + (n_bins,)).uniform_(0.0, 1.0)
+    ifrac = torch.arange(n_bins, dtype=dtype, device=dev) / n_bins
+    tnear_bins = ray_tnear + ifrac.view(batch_ones + (n_bins,)) * td
+    ts = tnear_bins + (td / n_bins) * u
+    return ts
