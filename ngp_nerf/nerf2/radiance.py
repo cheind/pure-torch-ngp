@@ -110,9 +110,9 @@ class NeRF(torch.nn.Module):
             x: (N,...,3) sampling positions in world space
 
         Returns:
-            sigma: (N,...,1) prediced density values [0,+inf]
             colors: (N,...,C) predicted color values [0,+inf] (when hdr)
                 [0,1] otherwise
+            sigma: (N,...,1) prediced density values [0,+inf]
         """
         batch_shape = x.shape[:-1]
 
@@ -137,4 +137,4 @@ class NeRF(torch.nn.Module):
         color = color.view(batch_shape + (-1,))
         sigma = sigma.view(batch_shape + (1,))
 
-        return sigma, color
+        return color, sigma
