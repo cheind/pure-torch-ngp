@@ -18,7 +18,19 @@ def load_scene_from_json(
     device: torch.device = None,
     dtype=torch.float32,
 ) -> tuple[CameraBatch, torch.Tensor, Optional[torch.Tensor]]:
-    """Loads scene information from nvidia compatible transforms.json"""
+    """Loads scene information from nvidia compatible transforms.json
+
+    Params:
+        path: path to `transforms.json` file
+        load_images: whether we should load ground-truth images
+        device: return data on this device
+        dtype: return data using this dtype
+
+    Returns:
+        cam: batch of N cameras
+        aabb: (2,3) tensor containing min/max corner of world aabb
+        images: (N,H,W,4) optional RGBA images normalized to [0..1] range
+    """
 
     path = Path(path)
     assert path.is_file()
