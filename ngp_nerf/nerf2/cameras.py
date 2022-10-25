@@ -1,6 +1,5 @@
 import torch
 import torch.nn
-import torch.nn.functional as F
 from typing import Union
 
 
@@ -110,6 +109,8 @@ class Camera(BaseCamera):
         height: int,
         R: torch.tensor = None,
         T: torch.tensor = None,
+        tnear: float = 0.0,
+        tfar: float = 100.0,
     ) -> None:
         super().__init__()
         if R is None:
@@ -121,6 +122,8 @@ class Camera(BaseCamera):
         self.register_buffer("size", torch.tensor([[width, height]]).int())
         self.register_buffer("R", R.unsqueeze(0).float())
         self.register_buffer("T", T.unsqueeze(0).float())
+        self.register_buffer("tnear", torch.tensor([[tnear]]).float())
+        self.register_buffer("tfar", torch.tensor([[tfar]]).float())
 
 
 class CameraBatch(BaseCamera):
@@ -135,22 +138,7 @@ class CameraBatch(BaseCamera):
             "principal_point", torch.cat([c.principal_point for c in cams], 0)
         )
         self.register_buffer("size", torch.cat([c.size for c in cams], 0))
-        self.register_buffer("R", torch.cat([c.R for c in cams]))
-        self.register_buffer("T", torch.cat([c.T for c in cams]))
-
-
-# if __name__ == "__main__":
-#     c = Camera(fx=500, fy=500, cx=160, cy=120, width=320, height=240)
-#     cb = CameraBatch([c, c])
-
-#     # sample_random_rays(cb, 20, subpixel=False)
-#     features = torch.rand(2, 6, 240, 320)
-#     uv, uv_features = next(iter(generate_random_uv_samples(cb, features)))
-#     print(uv.shape, uv_features.shape)
-
-#     uv, uv_features = next(iter(generate_sequential_uv_samples(cb, features)))
-#     print(uv.shape, uv_features.shape)
-
-#     xyz = cb.unproject_uv(cb.uv_grid(), depth=1.0)
-
-#     cb.world_rays(uv=cb.uv_grid())
+        self.register_buffer("R", torch.cat([c.R for c in cams]), 0)
+        self.register_buffer("T", torch.cat([c.T for c in cams]), 0)
+        self.register_buffer("tnear", torch.cat([c.tnear for c in cams]), 0)
+        self.register_buffer("tfar", torch.cat([c.tfar for c in cams]), 0)
