@@ -5,7 +5,7 @@ from .cameras import BaseCamera
 
 def world_ray_from_pixel(
     cam: BaseCamera, uv: torch.Tensor = None, normalize_dirs: bool = False
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Returns camera rays for each pixel specified in world the frame.
 
     Depending on the parameter `normalize_dirs` the semantics of tnear,tfar
