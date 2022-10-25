@@ -1,7 +1,6 @@
 import torch
 import torch.nn
 import torch.nn.functional as F
-import dataclasses
 from typing import Optional, Iterator, Union
 
 
