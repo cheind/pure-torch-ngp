@@ -19,14 +19,14 @@ def integrate_path(
 
     Params:
         color: (N,...,T,C) color samples C for (N,...) rays at steps (T,).
-        sigma: (N,...,T) volume density for each ray (N,...) and step (T,).
-        ts: (N,...,T) parametric ray step parameters
+        sigma: (N,...,T,1) volume density for each ray (N,...) and step (T,).
+        ts: (N,...,T,1) parametric ray step parameters
         tfar: (N,...,1) ray end values
 
     Returns:
         color: (N,...,C) final colors for each ray
-        transmittance: (N,...,T) accumulated transmittance for each ray and step
-        alpha: (N,...,T) alpha transparency values for ray and step
+        transmittance: (N,...,T,1) accumulated transmittance for each ray and step
+        alpha: (N,...,T,1) alpha transparency values for ray and step
 
     References:
         [1] NeRF: Representing Scenes as
@@ -35,21 +35,22 @@ def integrate_path(
     """
 
     # delta (N,...,T)
-    # delta[...,i] is defined as the segment length
-    # between ts[...,i+1] and ts[...,i]
-    delta = ts[..., 1:] - ts[..., :-1]  # (N,...,T-1)
-    delta = torch.cat((delta, tfar), -1)  # (N,...,T)
+    # delta[...,i,0] is defined as the segment length
+    # between ts[...,i+1,0] and ts[...,i,0]
+    delta = ts[..., 1:, :] - ts[..., :-1, :]  # (N,...,T-1,1)
+    delta = torch.cat((delta, tfar.unsqueeze(-2)), -2)  # (N,...,T,1)
 
-    # Alpha values
+    # Alpha values (N,...,T,1)
     sigma_mul_delta = sigma * delta
     alpha = 1.0 - (-sigma_mul_delta).exp()
 
     # Accumulated transmittance - this is an exclusive cumsum
-    acc_transm = sigma_mul_delta.cumsum(-1).roll(1, -1)
-    acc_transm[..., 0] = 0
+    # (N,...,T,1)
+    acc_transm = sigma_mul_delta.cumsum(-2).roll(1, -2)
+    acc_transm[..., 0, 0] = 0
     acc_transm = (-acc_transm).exp()
 
-    final_colors = (acc_transm[..., None] * alpha[..., None] * color).sum(1)
+    final_colors = (acc_transm * alpha * color).sum(-2)
 
     return final_colors, acc_transm, alpha
 

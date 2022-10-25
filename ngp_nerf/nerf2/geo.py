@@ -58,9 +58,15 @@ def evaluate_ray(
     Params:
         ray_origin: (N,...,3) ray origins
         ray_dir: (N,...,3) ray directions
-        ray_t: (N,...,1) ray eval parameters
+        ray_t: (N,...,1) or (N,...,T,1) ray eval parameters
+
+    Returns:
+        xyz: (N,...,3) or (N,...,T,3) locations
     """
-    return ray_origin + ray_t * ray_dir
+    if ray_origin.ndim == ray_t.ndim:
+        return ray_origin + ray_t * ray_dir
+    else:
+        return ray_origin.unsqueeze(-2) + ray_t * ray_dir.unsqueeze(-2)
 
 
 def intersect_ray_aabb(
@@ -116,7 +122,7 @@ def sample_ray_step_stratified(
         n_bins: number of strata
 
     Returns:
-        tsamples: (N,...,n_bins)
+        tsamples: (N,...,n_bins,1)
 
     Based on:
         NeRF: Representing Scenes as
@@ -129,10 +135,12 @@ def sample_ray_step_stratified(
     batch_shape = ray_tnear.shape[:-1]
     batch_ones = (1,) * len(batch_shape)
 
-    td = ray_tfar - ray_tnear
-    u = ray_tnear.new_empty(batch_shape + (n_bins,)).uniform_(0.0, 1.0)
+    u = ray_tnear.new_empty(batch_shape + (n_bins, 1)).uniform_(0.0, 1.0)  # (N,...,b,1)
     ifrac = torch.arange(n_bins, dtype=dtype, device=dev) / n_bins
-    tnear_bins = ray_tnear + ifrac.view(batch_ones + (n_bins,)) * td
+    td = (ray_tfar - ray_tnear).unsqueeze(-1)  # (N,...,1,1)
+    tnear_bins = (
+        ray_tnear.unsqueeze(-1) + ifrac.view(batch_ones + (n_bins, 1)) * td
+    )  # (N,...,b,1)
     ts = tnear_bins + (td / n_bins) * u
     return ts
 
