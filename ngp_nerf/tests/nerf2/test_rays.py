@@ -2,7 +2,7 @@ import torch
 from torch.testing import assert_close
 
 
-from ngp_nerf.nerf2 import cameras, rays
+from ngp_nerf.nerf2 import cameras, geo
 from ngp_nerf.linalg import rotation_matrix
 
 
@@ -20,7 +20,7 @@ def test_world_rays_shape():
     )
     cb = cameras.CameraBatch([cam, cam])
 
-    ray_origin, ray_dir, ray_tnear, ray_tfar = rays.world_ray(
+    ray_origin, ray_dir, ray_tnear, ray_tfar = geo.world_ray(
         cb, cb.uv_grid(), normalize_dirs=True
     )
     assert ray_origin.shape == (2, H, W, 3)
@@ -43,7 +43,7 @@ def test_world_rays_origins_directions():
     )
     cb = cameras.CameraBatch([cam, cam])
 
-    ray_origin, ray_dir, ray_tnear, ray_tfar = rays.world_ray(
+    ray_origin, ray_dir, ray_tnear, ray_tfar = geo.world_ray(
         cb, cb.uv_grid(), normalize_dirs=False
     )
     assert_close(ray_tnear, torch.tensor([0.0]).expand_as(ray_tnear))
@@ -65,24 +65,24 @@ def test_ray_aabb_intersection():
     tnear_initial = torch.tensor([0.0])
     tfar_initial = torch.tensor([10.0])
 
-    tnear, tfar = rays.intersect_ray_aabb(o, d, tnear_initial, tfar_initial, aabb)
+    tnear, tfar = geo.intersect_ray_aabb(o, d, tnear_initial, tfar_initial, aabb)
     assert_close(tnear, torch.tensor([[1.0]]))
     assert_close(tfar, torch.tensor([[3.0]]))
 
     # invert direction, because of initial tnear=0, result won't allow -3 as tnear
-    tnear, tfar = rays.intersect_ray_aabb(o, -d, tnear_initial, tfar_initial, aabb)
+    tnear, tfar = geo.intersect_ray_aabb(o, -d, tnear_initial, tfar_initial, aabb)
     assert_close(tnear, torch.tensor([[0.0]]))
     assert_close(tfar, torch.tensor([[-1.0]]))
 
     # however with updated initial bounds we see the hit
-    tnear, tfar = rays.intersect_ray_aabb(
+    tnear, tfar = geo.intersect_ray_aabb(
         o, -d, torch.tensor([-10.0]), tfar_initial, aabb
     )
     assert_close(tnear, torch.tensor([[-3.0]]))
     assert_close(tfar, torch.tensor([[-1.0]]))
 
     # miss
-    tnear, tfar = rays.intersect_ray_aabb(
+    tnear, tfar = geo.intersect_ray_aabb(
         o, torch.tensor([[0.0, 0.0, 1.0]]), tnear_initial, tfar_initial, aabb
     )
     assert (tnear > tfar).all()
@@ -93,7 +93,7 @@ def test_ray_aabb_intersection():
     tnear_initial = torch.tensor([[0.0]]).expand(100, -1)
     tfar_initial = torch.tensor([[10.0]]).expand(100, -1)
 
-    tnear, tfar = rays.intersect_ray_aabb(o, d, tnear_initial, tfar_initial, aabb)
+    tnear, tfar = geo.intersect_ray_aabb(o, d, tnear_initial, tfar_initial, aabb)
     assert tnear.shape == (100, 1)
     assert tfar.shape == (100, 1)
     assert (tnear < tfar).all()  # all intersect
@@ -113,7 +113,7 @@ def test_ray_aabb_intersection():
     tnear_initial = torch.tensor([[0.0]]).expand(100, -1).view(5, 20, 1)
     tfar_initial = torch.tensor([[10.0]]).expand(100, -1).view(5, 20, 1)
 
-    tnear, tfar = rays.intersect_ray_aabb(o, d, tnear_initial, tfar_initial, aabb)
+    tnear, tfar = geo.intersect_ray_aabb(o, d, tnear_initial, tfar_initial, aabb)
     assert tnear.shape == (5, 20, 1)
     assert tfar.shape == (5, 20, 1)
     assert (tnear < tfar).all()  # all intersect
@@ -131,7 +131,7 @@ def test_ray_aabb_intersection():
 def test_sample_ray_step_stratified():
     tnear = torch.tensor([0.0, 10.0]).repeat_interleave(100).view(2, 100, 1)
     tfar = torch.tensor([1.0, 15.0]).repeat_interleave(100).view(2, 100, 1)
-    ts = rays.sample_ray_step_stratified(tnear, tfar, n_bins=2)
+    ts = geo.sample_ray_step_stratified(tnear, tfar, n_bins=2)
 
     assert ts.shape == (2, 100, 2)
 
