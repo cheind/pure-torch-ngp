@@ -3,7 +3,7 @@ import torch
 from .cameras import BaseCamera
 
 
-def world_ray(
+def world_ray_from_pixel(
     cam: BaseCamera, uv: torch.Tensor = None, normalize_dirs: bool = False
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Returns camera rays for each pixel specified in world the frame.
@@ -119,3 +119,19 @@ def sample_ray_step_stratified(
     tnear_bins = ray_tnear + ifrac.view(batch_ones + (n_bins,)) * td
     ts = tnear_bins + (td / n_bins) * u
     return ts
+
+
+def convert_world_to_box_normalized(
+    xyz: torch.Tensor, box: torch.Tensor
+) -> torch.Tensor:
+    """Convert world points to normalized box coordinates [-1,+1].
+
+    Params:
+        xyz: (N,...,3) points
+        box: (2,3) tensor containing min/max box corner in world coordinates
+
+    Returns:
+        nxyz: (N,...,3) normalized coordinates
+    """
+    span = box[1] - box[0]
+    return (xyz - box[0].expand_as(xyz)) / span.expand_as(xyz) * 2.0 - 1.0

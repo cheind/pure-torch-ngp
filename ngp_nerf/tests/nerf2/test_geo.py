@@ -20,7 +20,7 @@ def test_world_rays_shape():
     )
     cb = cameras.CameraBatch([cam, cam])
 
-    ray_origin, ray_dir, ray_tnear, ray_tfar = geo.world_ray(
+    ray_origin, ray_dir, ray_tnear, ray_tfar = geo.world_ray_from_pixel(
         cb, cb.uv_grid(), normalize_dirs=True
     )
     assert ray_origin.shape == (2, H, W, 3)
@@ -43,7 +43,7 @@ def test_world_rays_origins_directions():
     )
     cb = cameras.CameraBatch([cam, cam])
 
-    ray_origin, ray_dir, ray_tnear, ray_tfar = geo.world_ray(
+    ray_origin, ray_dir, ray_tnear, ray_tfar = geo.world_ray_from_pixel(
         cb, cb.uv_grid(), normalize_dirs=False
     )
     assert_close(ray_tnear, torch.tensor([0.0]).expand_as(ray_tnear))
@@ -139,3 +139,31 @@ def test_sample_ray_step_stratified():
     assert ((ts[0, :, 1] >= 0.5) & (ts[0, :, 1] <= 1.0)).all()
     assert ((ts[1, :, 0] >= 10.0) & (ts[1, :, 0] <= 12.5)).all()
     assert ((ts[1, :, 1] >= 12.5) & (ts[1, :, 1] <= 15.0)).all()
+
+
+def test_convert_world_to_box_normalized():
+    aabb = torch.tensor([[0.0, 0.0, 0.0], [1.0, 2.0, 3.0]])
+    t = torch.tensor([[10, 10, 10]])
+
+    # xy layout in meshgrid only works for 2 dims
+    xyz = torch.stack(
+        torch.meshgrid(
+            torch.arange(2), torch.arange(2), torch.arange(2), indexing="ij"
+        ),
+        -1,
+    ).float()
+    xyz = torch.index_select(xyz, -1, torch.arange(3).flip(0))
+    xyz *= torch.tensor([1.0, 2.0, 3.0]).view(1, 1, 1, 3)
+    xyz += t.view(1, 1, 1, 3)
+
+    nxyz = geo.convert_world_to_box_normalized(xyz, aabb + t.view(1, 3))
+
+    # Note: shape layout (D,H,W) but indexing is (w,h,d)
+    assert_close(nxyz[0, 0, 0], torch.tensor([-1.0, -1.0, -1.0]))
+    assert_close(nxyz[0, 0, 1], torch.tensor([1.0, -1.0, -1.0]))
+    assert_close(nxyz[0, 1, 0], torch.tensor([-1.0, 1.0, -1.0]))
+    assert_close(nxyz[0, 1, 1], torch.tensor([1.0, 1.0, -1.0]))
+    assert_close(nxyz[1, 0, 0], torch.tensor([-1.0, -1.0, 1.0]))
+    assert_close(nxyz[1, 0, 1], torch.tensor([1.0, -1.0, 1.0]))
+    assert_close(nxyz[1, 1, 0], torch.tensor([-1.0, 1.0, 1.0]))
+    assert_close(nxyz[1, 1, 1], torch.tensor([1.0, 1.0, 1.0]))
