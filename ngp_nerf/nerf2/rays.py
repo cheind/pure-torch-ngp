@@ -5,7 +5,7 @@ from .cameras import BaseCamera
 
 
 def world_rays(
-    cam: BaseCamera, uv: torch.Tensor = None, normalize_dirs: bool = True
+    cam: BaseCamera, uv: torch.Tensor = None, normalize_dirs: bool = False
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Returns camera rays for each pixel specified in world the frame.
 
@@ -22,6 +22,8 @@ def world_rays(
     Returns:
         ray_origin: (N,...,3) ray origins
         ray_dir: (N,...,3) ray directions
+        ray_tnear: (N,...,1) ray start
+        ray_tfar: (N,...,1) ray end
     """
     if uv is None:
         uv = cam.uv_grid()
@@ -34,9 +36,52 @@ def world_rays(
     xyz = cam.unproject_uv(uv, depth=1.0)
     ray_dir = (rot @ xyz.unsqueeze(-1)).squeeze(-1)
 
+    s = 1.0
     if normalize_dirs:
-        F.normalize(ray_dir, p=2, dim=-1)
+        s = 1.0 / torch.norm(ray_dir, p=2, dim=-1, keepdim=True)
+        ray_dir *= s
 
     ray_origin = trans.expand_as(ray_dir)
+    ray_tnear = cam.tnear.view((N,) + mbatch_ones + (1,)).expand(-1, *mbatch, -1) * s
+    ray_tfar = cam.tfar.view((N,) + mbatch_ones + (1,)).expand(-1, *mbatch, -1) * s
 
-    return ray_origin, ray_dir
+    return ray_origin, ray_dir, ray_tnear, ray_tfar
+
+
+def intersect_rays_aabb(
+    ray_origin: torch.Tensor,
+    ray_dir: torch.Tensor,
+    ray_tnear: torch.Tensor,
+    ray_tfar: torch.Tensor,
+    box: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Batched ray/box intersection using slab method.
+
+    Params:
+        ray_origin: (N,...,3) ray origins
+        ray_dir: (N,...,3) ray directions
+        ray_tnear: (N,...,1) ray starts
+        ray_tfar: (N,...,1) ray ends
+        box: (2,3) min/max corner of aabb
+
+    Returns:
+        ray_tnear: (N,...,1) updated ray starts. Ray missed box if tnear > tfar
+        ray_tfar: (N,...,1) updated ray ends. Ray missed box if tnear > tfar
+
+    Adapted from
+    https://github.com/evanw/webgl-path-tracing/blob/master/webgl-path-tracing.js
+    """
+    tmin = (box[0].expand_as(ray_origin) - ray_origin) / ray_dir
+    tmax = (box[1].expand_as(ray_origin) - ray_origin) / ray_dir
+
+    t1 = torch.min(tmin, tmax)
+    t2 = torch.max(tmin, tmax)
+
+    tnear = t1.max(dim=-1, keepdim=True)[0]
+    tfar = t2.min(dim=-1, keepdim=True)[0]
+
+    # Respect initial bounds
+    tnear = torch.max(tnear, ray_tnear)
+    tfar = torch.min(tfar, ray_tfar)
+
+    return tnear, tfar
