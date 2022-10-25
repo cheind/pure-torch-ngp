@@ -72,8 +72,8 @@ def load_scene_from_json(
             rot = u @ torch.diag(s) @ v.T
             t[:3, :3] = rot
 
-        # Handle extrinsics (convert from OpenGL to OpenCV camera
-        # model: i.e look towards positive z)
+        # Cconvert from OpenGL to OpenCV camera
+        # model: i.e look towards positive z
         flip = torch.eye(4, dtype=torch.float64)
         flip[1, 1] = -1
         flip[2, 2] = -1
