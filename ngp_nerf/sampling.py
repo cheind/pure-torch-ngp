@@ -1,13 +1,21 @@
-from lib2to3.pytree import Base
-from numpy import isscalar
 import torch
 import torch.nn
 import torch.nn.functional as F
 import dataclasses
-from typing import Optional, Iterator, Iterable, Union
+from typing import Optional, Iterator, Union
 
 
 class BaseCamera(torch.nn.Module):
+    """Base class for perspective cameras.
+
+    All camera models treat pixels as squares with pixel centers
+    corresponding to integer pixel coordinates. That is, a pixel
+    (u,v) extends from (u+0.5,v+0.5) to `(u+0.5,v+0.5)`.
+
+    In addition we generalize to `N` cameras by batching along
+    the first dimension.
+    """
+
     def __init__(self):
         super().__init__()
         self.focal_length: torch.Tensor
@@ -19,6 +27,12 @@ class BaseCamera(torch.nn.Module):
         self.tfar: torch.Tensor
 
     def uv_grid(self):
+        """Generates uv-pixel grid coordinates.
+
+        Returns:
+            uv: (N,H,W,2) tensor of grid coordinates using
+                'xy' indexing.
+        """
         N = self.focal_length.shape[0]
         dev = self.focal_length.device
         dtype = self.focal_length.dtype
@@ -37,9 +51,22 @@ class BaseCamera(torch.nn.Module):
         return uv
 
     def unproject_uv(
-        self, uv: torch.Tensor, depth: Union[float, torch.Tensor] = 1.0
+        self, uv: torch.Tensor = None, depth: Union[float, torch.Tensor] = 1.0
     ) -> torch.Tensor:
+        """Unprojects uv-pixel coordinates to view space.
+
+        Params:
+            uv: (N,...,2) uv coordinates to unproject. If not specified, defaults
+                to all grid coordiantes.
+            depth: scalar or any shape broadcastable to (N,...,1) representing
+                the depths of unprojected pixels.
+
+        Returns:
+            xyz: (N,...,3) tensor of coordinates.
+        """
         # uv is (N,...,2)
+        if uv is None:
+            uv = self.uv_grid()
         N = self.focal_length.shape[0]
         mbatch = uv.shape[1:-1]
         mbatch_ones = (1,) * len(mbatch)
@@ -58,7 +85,21 @@ class BaseCamera(torch.nn.Module):
     def world_rays(
         self, uv: torch.Tensor = None, normalize_dirs: bool = True
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        # uv is (N,...,2), result is (N,...,3)
+        """Returns eye-ray parameter in world frame for each pixel specified.
+
+        Depending on the parameter `normalize_dirs` the semantics of tnear,tfar
+        changes. When normalize_dirs is false,  tnear and tfar can be interpreted
+        as distance to camera parallel to image plane.
+
+        Params:
+            uv: (N,...,2) uv coordinates to generate rays for. If not specified,
+                defaults to all grid coordiantes.
+            normalize_dirs: wether to normalize ray directions to unit length
+
+        Returns:
+            ray_origin: (N,...,3) ray origins
+            ray_dir: (N,...,3) ray directions
+        """
         if uv is None:
             uv = self.uv_grid()
         N = self.focal_length.shape[0]
@@ -68,7 +109,7 @@ class BaseCamera(torch.nn.Module):
         rot = self.R.view((N,) + mbatch_ones + (3, 3))
         trans = self.T.view((N,) + mbatch_ones + (3,))
         xyz = self.unproject_uv(uv, depth=1.0)
-        ray_dir = (rot @ xyz.unsqueeze(-1)).squeeze(-1) + trans
+        ray_dir = (rot @ xyz.unsqueeze(-1)).squeeze(-1)
 
         if normalize_dirs:
             F.normalize(ray_dir, p=2, dim=-1)
@@ -79,6 +120,12 @@ class BaseCamera(torch.nn.Module):
 
 
 class Camera(BaseCamera):
+    """A single perspective camera.
+
+    To comply with BaseCamera and batching, parameters are
+    stored with a prepended batch dimension `N=1`.
+    """
+
     def __init__(
         self,
         fx: float,
@@ -103,6 +150,8 @@ class Camera(BaseCamera):
 
 
 class CameraBatch(BaseCamera):
+    """A batch of N perspective cameras."""
+
     def __init__(self, cams: list[Camera]) -> None:
         super().__init__()
         self.register_buffer(
@@ -116,22 +165,29 @@ class CameraBatch(BaseCamera):
         self.register_buffer("T", torch.cat([c.T for c in cams]))
 
 
-@dataclasses.dataclass
-class RayBatch:
-    pixels_uv: torch.Tensor
-    ray_origins: torch.Tensor
-    ray_dirs: torch.Tensor
-    ray_tnear: torch.Tensor
-    ray_tfar: torch.Tensor
-    features: Optional[torch.Tensor]
-
-
 def generate_random_uv_samples(
     camera: BaseCamera,
     image: torch.Tensor = None,
     n_samples_per_cam: int = None,
     subpixel: bool = True,
 ) -> Iterator[tuple[torch.Tensor, Optional[torch.Tensor]]]:
+    """Generate random pixel samples.
+
+    This methods acts as an infinite generator that samples
+    `n_samples_per_cam` pixel coordinates per camera randomly
+    from the image plane.
+
+    Params:
+        camera: a batch of N perspective cameras
+        image: (N,C,H,W) image tensor with C feature channels
+        n_samples_per_cam: number of samples from each camera to
+            draw. If not specified, defaults to W.
+        subpixel: whether subpixel coordinates are allowed.
+
+    Generates:
+        uv: (N, n_samples_per_cam, 2) sampled coordinates
+        uv_feature (N, n_samples_per_cam, C) samples features
+    """
     N = camera.focal_length.shape[0]
     M = n_samples_per_cam or camera.size[0, 0].item()
     dev = camera.focal_length.device
@@ -166,6 +222,22 @@ def generate_sequential_uv_samples(
     n_samples_per_cam: int = None,
     n_passes: int = 1,
 ) -> Iterator[tuple[torch.Tensor, Optional[torch.Tensor]]]:
+    """Generate sequential pixel samples.
+
+    This methods acts as a generator, generating `n_samples_per_cam`
+    pixel grid samples per step.
+
+    Params:
+        camera: a batch of N perspective cameras
+        image: (N,C,H,W) image tensor with C feature channels.
+        n_samples_per_cam: number of samples from each camera to
+            draw. If not specified, defaults to W.
+        n_passes: number of total passes over all pixels
+
+    Generates:
+        uv: (N, n_samples_per_cam, 2) sampled coordinates
+        uv_feature (N, n_samples_per_cam, C) samples features
+    """
     # TODO: assumes same image size currently
     N = camera.focal_length.shape[0]
     M = n_samples_per_cam or camera.size[0, 0].item()
@@ -201,39 +273,6 @@ def _sample_features_uv(
     return features_uv
 
 
-def sample_random_rays(
-    cams: CameraBatch,
-    features: Optional[Union[torch.Tensor, list[torch.Tensor]]] = None,
-    n_rays_per_cam: int = None,
-    subpixel: bool = True,
-    normalize_dir: bool = False,
-):
-    N = cams.focal_length.shape[0]
-    n_rays_per_cam = n_rays_per_cam or cams.size[0, 0].item()
-    M = n_rays_per_cam
-    dev = cams.focal_length.device
-    dtype = cams.focal_length.dtype
-
-    uv = torch.rand(size=(N, M, 2), dtype=dtype, device=dev) * cams.size[:, None, :]
-    if not subpixel:
-        uv = torch.round(uv)  # may create duplicates
-    xy = (uv - cams.principal_point[:, None, :]) / cams.focal_length[:, None, :]
-    xyz = torch.cat((xy, xy.new_ones(N, M, 1)), -1)
-    xyz = (cams.R.unsqueeze(1) @ xyz.unsqueeze(-1)).squeeze(-1) + cams.T[:, None, :]
-    if normalize_dir:
-        xyz = F.normalize(xyz, p=2, dim=-1)
-
-    # f_uv = None
-    # if features is not None:
-    #     if not subpixel:
-    #         uv_int = uv.long()
-    #         # f_uv = features.permute(0,2,3,1)[]
-
-    ray_dirs = xyz  # normalize necessary?
-    ray_origins = cams.T[:, None, :].expand_as(xyz)
-    print(xyz.shape, ray_origins.shape)
-
-
 if __name__ == "__main__":
     c = Camera(fx=500, fy=500, cx=160, cy=120, width=320, height=240)
     cb = CameraBatch([c, c])
@@ -249,23 +288,6 @@ if __name__ == "__main__":
     xyz = cb.unproject_uv(cb.uv_grid(), depth=1.0)
 
     cb.world_rays(uv=cb.uv_grid())
-
-
-# def generate_random_pixel_samples(
-#     cams: list[PerspectiveCamera],
-#     features: Optional[list[torch.Tensor]] = None,
-#     n_samples: Optional[int] = None,
-#     only_pixelcenters: bool = False,
-# ) -> Iterator[PixelBatch]:
-#     n_cams = len(cams)
-#     n_samples = n_samples or cams[0].hw[0] * cams[0].hw[1]
-#     dev = cams[0].focal_length.device
-
-#     uv = torch.empty((n_samples, 2), device=dev)
-#     while True:
-#         cam_idx = torch.rand
-
-#     pass
 
 
 if __name__ == "__main__":
