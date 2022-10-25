@@ -18,3 +18,20 @@ def test_hom_dehom():
     x3d = linalg.hom(x, 2.0)
     x2d = linalg.dehom(x3d)
     assert_close(x2d, x * 0.5)
+
+
+def test_rotation_matrix():
+
+    R = linalg.rotation_matrix(
+        torch.eye(3),
+        torch.tensor([torch.pi, torch.pi, torch.pi]),
+    )
+    assert_close(
+        R[0], torch.tensor([[1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0]])
+    )
+    assert_close(
+        R[1], torch.tensor([[-1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, -1.0]])
+    )
+    assert_close(
+        R[2], torch.tensor([[-1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, 1.0]])
+    )
