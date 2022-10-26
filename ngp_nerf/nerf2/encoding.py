@@ -355,10 +355,13 @@ def _hash_xor(x: torch.LongTensor, n_indices: int) -> torch.LongTensor:
 
 
 def _hash_ravel(x: torch.LongTensor, shape: tuple[int, ...]) -> torch.LongTensor:
-    Q = x.shape[-1]
-    assert Q in [2, 3], "Only implemented for 2D and 3D"
-    if Q == 2:
-        indices = x[..., 0] + x[..., 1] * shape[1]
-    elif Q == 3:
-        indices = x[..., 0] + x[..., 1] * shape[2] + x[..., 2] * (shape[1] * shape[2])
-    return indices
+    """Computes linear indices from multi-dimensional indices
+
+    Params:
+        x: (N,...,d) multi-dimensional indices with dimensions indexed (x,y,z,...,d)
+        shape: shape of grid (D,...,H,W)
+
+    """
+    strides = x.new_tensor(shape[::-1]).cumprod(0).roll(1, 0)
+    strides[0] = 1
+    return (x * strides.expand_as(x)).sum(-1)
