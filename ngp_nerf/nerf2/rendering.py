@@ -32,22 +32,22 @@ def render_volume_stratified(
     ray_tnear = ray_tnear[ray_hit]
     ray_tfar = ray_tfar[ray_hit]
 
-    # Sample ray steps (V,T,1)
+    # Sample ray steps (T,V,1)
     ray_ts = geo.sample_ray_step_stratified(ray_tnear, ray_tfar, n_bins=n_ray_steps)
 
-    # Evaluate world points
+    # Evaluate world points (T,V,3)
     xyz = geo.evaluate_ray(ray_origin, ray_dir, ray_ts)
 
     # Predict radiance properties
     color, sigma = radiance_field(xyz)
 
-    # Integrate (N,...,T,C) -> (N,...,C)
-    final_color, final_transm, _ = radiance.integrate_path(
+    # Integrate color (T,N,...,C) -> (N,...,C), others are per-sample
+    final_color, sample_transm, sample_alpha = radiance.integrate_path(
         color, sigma, ray_ts, ray_tfar
     )
 
     # TODO: the following is not quite correct, should be 1.0 - T(i)*alpha(i)
-    final_alpha = 1.0 - final_transm[..., -1, :]
+    final_alpha = 1.0 - sample_transm[-1]
 
     out_color = color.new_zeros(batch_shape + color.shape[-1:])
     out_alpha = sigma.new_zeros(batch_shape + (1,))

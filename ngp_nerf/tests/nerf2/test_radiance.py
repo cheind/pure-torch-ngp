@@ -12,7 +12,7 @@ class ColorGradientRadianceField(radiance.RadianceField):
         self,
         aabb: torch.Tensor,
         surface_pos: float = 0.2,  # absolute x-pos
-        surface_dim: int = 0,  #
+        surface_dim: int = 0,  # if zero, plane normal parallel to x
         density_scale: float = 1.0,
         cmap: str = "gray",
     ):
@@ -27,13 +27,12 @@ class ColorGradientRadianceField(radiance.RadianceField):
         # For cmap we need [0..1] coords
         nxyz = geo.convert_world_to_box_normalized(xyz, self.aabb) * 0.5 + 0.5
 
-        # (N,...,3)
+        # Colors (N,...,3)
         colors = self.cmap(nxyz[..., self.surface_dim].cpu().numpy())
         colors = torch.tensor(colors[..., :3])
         colors = colors.to(dtype)
 
-        # (N,...,1)
-        # Density dependes on the
+        # Density (N,...,1)
         density = nxyz[..., self.surface_dim : self.surface_dim + 1] - self.surface_pos
 
         mask = density < 0
@@ -47,9 +46,8 @@ def test_radiance_integrate_path():
     o = torch.tensor([[0.0, 0.0, 0.0]])
     d = torch.tensor([[1.0, 0.0, 0.0]])
 
-    # ts = rays.sample_rays_uniformly(tnear, tfar, 100)
-    ts = torch.linspace(0, 1, 100).view(1, 100, 1)
-    xyz = geo.evaluate_ray(o, d, ts)
+    ts = torch.linspace(0, 1, 100).view(100, 1, 1)
+    xyz = geo.evaluate_ray(o, d, ts)  # (100,1,3)
 
     rf = ColorGradientRadianceField(
         aabb=torch.Tensor([[0.0] * 3, [1.0] * 3]),

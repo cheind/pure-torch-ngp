@@ -133,14 +133,14 @@ def test_sample_ray_step_stratified():
     tfar = torch.tensor([1.0, 15.0]).repeat_interleave(100).view(2, 100, 1)
     ts = geo.sample_ray_step_stratified(tnear, tfar, n_bins=2)
 
-    assert ts.shape == (2, 100, 2, 1)
+    assert ts.shape == (2, 2, 100, 1)
 
     ts = ts.squeeze(-1)
 
-    assert ((ts[0, :, 0] >= 0.0) & (ts[0, :, 0] <= 0.5)).all()
-    assert ((ts[0, :, 1] >= 0.5) & (ts[0, :, 1] <= 1.0)).all()
-    assert ((ts[1, :, 0] >= 10.0) & (ts[1, :, 0] <= 12.5)).all()
-    assert ((ts[1, :, 1] >= 12.5) & (ts[1, :, 1] <= 15.0)).all()
+    assert ((ts[0, 0] >= 0.0) & (ts[0, 0] <= 0.5)).all()
+    assert ((ts[1, 0] >= 0.5) & (ts[1, 0] <= 1.0)).all()
+    assert ((ts[0, 1] >= 10.0) & (ts[0, 1] <= 12.5)).all()
+    assert ((ts[1, 1] >= 12.5) & (ts[1, 1] <= 15.0)).all()
 
 
 def test_convert_world_to_box_normalized():
@@ -181,6 +181,6 @@ def test_ray_evaluate():
     assert_close(x[..., 1], torch.tensor([0.5]).expand(10))
     assert_close(x[..., 2], torch.tensor([0.0]).expand(10))
 
-    t = torch.randn(10, 20, 3)
-    x = geo.evaluate_ray(o, d, t)  # x is (10,20,3)
-    assert x.shape == (10, 20, 3)
+    t = torch.randn(30, 20, 10, 1)
+    x = geo.evaluate_ray(o, d, t)  # x is (30,20,10,3)
+    assert x.shape == (30, 20, 10, 3)

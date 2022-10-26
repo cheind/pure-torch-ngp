@@ -13,13 +13,13 @@ def test_render_volume_stratified():
         aabb=aabb,
         surface_pos=0.5,
         surface_dim=2,
-        density_scale=10000.0,  # hard surface boundary
+        density_scale=1e1,  # hard surface boundary
         cmap="hsv",
     )
 
     cam = cameras.Camera(
-        fx=20.0,
-        fy=20.0,
+        fx=50.0,
+        fy=50.0,
         cx=15,
         cy=15,
         width=31,
@@ -28,7 +28,7 @@ def test_render_volume_stratified():
     )
 
     color, alpha = rendering.render_volume_stratified(
-        rf, aabb, cam, cam.uv_grid(), n_ray_steps=100
+        rf, aabb, cam, cam.uv_grid(), n_ray_steps=200
     )
     img = torch.cat((color, alpha), -1)
 

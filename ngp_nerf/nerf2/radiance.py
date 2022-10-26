@@ -18,15 +18,15 @@ def integrate_path(
     This implementation is a batched version of equations (1,3) in [1].
 
     Params:
-        color: (N,...,T,C) color samples C for (N,...) rays at steps (T,).
-        sigma: (N,...,T,1) volume density for each ray (N,...) and step (T,).
-        ts: (N,...,T,1) parametric ray step parameters
+        color: (T,N,...,C) color samples C for (N,...) rays at steps (T,).
+        sigma: (T,N,...,1) volume density for each ray (N,...) and step (T,).
+        ts: (T,N,...,1) parametric ray step parameters
         tfar: (N,...,1) ray end values
 
     Returns:
         color: (N,...,C) final colors for each ray
-        transmittance: (N,...,T,1) accumulated transmittance for each ray and step
-        alpha: (N,...,T,1) alpha transparency values for ray and step
+        sample_transmittance: (T,N,...,1) accumulated transmittance for each ray and step
+        sample_alpha: (T,N,...,1) alpha transparency values for ray and step
 
     References:
         [1] NeRF: Representing Scenes as
@@ -34,23 +34,21 @@ def integrate_path(
         https://arxiv.org/pdf/2003.08934.pdf
     """
 
-    # delta (N,...,T)
-    # delta[...,i,0] is defined as the segment length
-    # between ts[...,i+1,0] and ts[...,i,0]
-    delta = ts[..., 1:, :] - ts[..., :-1, :]  # (N,...,T-1,1)
-    delta = torch.cat((delta, tfar.unsqueeze(-2)), -2)  # (N,...,T,1)
+    # delta[i] is defined as the segment lengths between ts[i+1] and ts[i]
+    delta = ts[1:] - ts[:-1]  # (T-1,N,...,1)
+    delta = torch.cat((delta, tfar.unsqueeze(0)), 0)  # (T,N,...,1)
 
-    # Alpha values (N,...,T,1)
+    # Alpha values (T,N,...,1)
     sigma_mul_delta = sigma * delta
     alpha = 1.0 - (-sigma_mul_delta).exp()
 
     # Accumulated transmittance - this is an exclusive cumsum
-    # (N,...,T,1)
-    acc_transm = sigma_mul_delta.cumsum(-2).roll(1, -2)
-    acc_transm[..., 0, 0] = 0
+    # (T,N,...,1)
+    acc_transm = sigma_mul_delta.cumsum(0).roll(1, 0)
+    acc_transm[0] = 0
     acc_transm = (-acc_transm).exp()
 
-    final_colors = (acc_transm * alpha * color).sum(-2)
+    final_colors = (acc_transm * alpha * color).sum(0)
 
     return final_colors, acc_transm, alpha
 
