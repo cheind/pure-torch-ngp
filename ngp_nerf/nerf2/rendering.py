@@ -2,6 +2,7 @@ import torch
 
 from . import radiance
 from . import cameras
+from . import sampling
 from . import geo
 
 
@@ -33,7 +34,9 @@ def render_volume_stratified(
     ray_tfar = ray_tfar[ray_hit]
 
     # Sample ray steps (T,V,1)
-    ray_ts = geo.sample_ray_step_stratified(ray_tnear, ray_tfar, n_bins=n_ray_steps)
+    ray_ts = sampling.sample_ray_step_stratified(
+        ray_tnear, ray_tfar, n_bins=n_ray_steps
+    )
 
     # Evaluate world points (T,V,3)
     xyz = geo.evaluate_ray(ray_origin, ray_dir, ray_ts)

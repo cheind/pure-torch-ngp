@@ -128,21 +128,6 @@ def test_ray_aabb_intersection():
     assert (isect_far.abs() - 1.0 < 1e-5).any(-1).sum() == 100
 
 
-def test_sample_ray_step_stratified():
-    tnear = torch.tensor([0.0, 10.0]).repeat_interleave(100).view(2, 100, 1)
-    tfar = torch.tensor([1.0, 15.0]).repeat_interleave(100).view(2, 100, 1)
-    ts = geo.sample_ray_step_stratified(tnear, tfar, n_bins=2)
-
-    assert ts.shape == (2, 2, 100, 1)
-
-    ts = ts.squeeze(-1)
-
-    assert ((ts[0, 0] >= 0.0) & (ts[0, 0] <= 0.5)).all()
-    assert ((ts[1, 0] >= 0.5) & (ts[1, 0] <= 1.0)).all()
-    assert ((ts[0, 1] >= 10.0) & (ts[0, 1] <= 12.5)).all()
-    assert ((ts[1, 1] >= 12.5) & (ts[1, 1] <= 15.0)).all()
-
-
 def test_convert_world_to_box_normalized():
     aabb = torch.tensor([[0.0, 0.0, 0.0], [1.0, 2.0, 3.0]])
     t = torch.tensor([[10, 10, 10]])

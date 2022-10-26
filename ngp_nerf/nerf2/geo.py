@@ -108,45 +108,6 @@ def intersect_ray_aabb(
     return tnear, tfar
 
 
-def sample_ray_step_stratified(
-    ray_tnear: torch.Tensor, ray_tfar: torch.Tensor, n_bins: int
-) -> torch.Tensor:
-    """Creates stratified ray step samples between tnear/tfar.
-
-    The returned samples per ray are guaranteed to be
-    sorted in ascending order.
-
-    Params:
-        ray_tnear: (N,...,1) ray start
-        ray_tfar: (N,...,1) ray ends
-        n_bins: number of strata
-
-    Returns:
-        tsamples: (n_bins,N,...,1)
-
-    Based on:
-        NeRF: Representing Scenes as
-        Neural Radiance Fields for View Synthesis
-        https://arxiv.org/pdf/2003.08934.pdf
-        https://en.wikipedia.org/wiki/Stratified_sampling
-    """
-    dev = ray_tnear.device
-    dtype = ray_tnear.dtype
-    batch_shape = ray_tnear.shape
-    batch_ones = (1,) * len(batch_shape)
-
-    u = ray_tnear.new_empty((n_bins,) + ray_tnear.shape).uniform_(
-        0.0, 1.0
-    )  # (b,N,...,1)
-    ifrac = torch.arange(n_bins, dtype=dtype, device=dev) / n_bins
-    td = (ray_tfar - ray_tnear).unsqueeze(0)  # (1,N,...,1)
-    tnear_bins = (
-        ray_tnear.unsqueeze(0) + ifrac.view((n_bins,) + batch_ones) * td
-    )  # (b,N,...,1)
-    ts = tnear_bins + (td / n_bins) * u
-    return ts
-
-
 def convert_world_to_box_normalized(
     xyz: torch.Tensor, box: torch.Tensor
 ) -> torch.Tensor:
