@@ -6,6 +6,7 @@ from torch.testing import assert_close
 from ngp_nerf.nerf2.encoding import (
     MultiLevelHybridHashEncoding,
     _compute_bilinear_params,
+    _hash_ravel,
 )
 
 
@@ -246,3 +247,19 @@ def test_trilinear_interpolation():
     # compute_bilinear_params directly
     yhat = _bilinear_interpolate(img, x)
     assert (y - yhat).abs().max() < 1e-4
+
+
+def test_hash_ravel():
+    import numpy as np
+
+    D, H, W = 10, 4, 6
+    x = torch.tensor([[0, 0, 0], [1, 1, 1], [5, 3, 9], [2, 0, 0], [0, 2, 0], [0, 0, 2]])
+
+    ids_2d_numpy = np.ravel_multi_index(x[..., :2].T.numpy(), (W, H), order="F")
+    ids_3d_numpy = np.ravel_multi_index(x.T.numpy(), (W, H, D), order="F")
+
+    ids_2d = _hash_ravel(x[..., :2], shape=(H, W))
+    ids_3d = _hash_ravel(x, shape=(D, H, W))
+    # print(ids_3d, ids_3d_numpy)
+    assert_close(ids_2d, torch.tensor(ids_2d_numpy).long())
+    assert_close(ids_3d, torch.tensor(ids_3d_numpy).long())

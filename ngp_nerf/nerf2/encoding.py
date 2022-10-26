@@ -135,7 +135,7 @@ class MultiLevelHybridHashEncoding(torch.nn.Module):
                 )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Returns the multi-resolutional feature emebeddings for all query locations.
+        """Computes embedding features for each location and level.
 
         Params:
             x: (B,2) or (B,3) array of query locations in value range [-1,+1].
@@ -196,7 +196,7 @@ class MultiLevelHybridHashEncoding(torch.nn.Module):
     def _compute_dense_indices(self, li: LevelInfo) -> torch.LongTensor:
         index_coords = pixels.generate_grid_coords(li.shape, indexing="xy")
         if not li.hashing:
-            ids = _hash_ravel(index_coords, li.shape, li.n_encodings)
+            ids = _hash_ravel(index_coords, li.shape)
         else:
             ids = _hash_xor(index_coords, li.n_encodings)
         return ids
@@ -213,7 +213,7 @@ class MultiLevelHybridHashEncoding(torch.nn.Module):
         if li.hashing:
             ids = _hash_xor(c, li.n_encodings)
         else:
-            ids = _hash_ravel(c, li.shape, li.n_encodings)
+            ids = _hash_ravel(c, li.shape)
 
         # Point outside elements to the first element, but set
         # all weights zero to simulate zero-padding.
@@ -253,7 +253,7 @@ def _compute_resolutions(
 def _compute_bilinear_params(
     x: torch.Tensor, shape: tuple[int, ...]
 ) -> tuple[torch.LongStorage, torch.Tensor, torch.BoolTensor]:
-    """Computes bilinear/trilinear interpolation parameter
+    """Computes bilinear/trilinear interpolation parameters
 
     Params:
         x: (B,C) points with C=2 or C=3
@@ -354,13 +354,11 @@ def _hash_xor(x: torch.LongTensor, n_indices: int) -> torch.LongTensor:
     return indices % n_indices
 
 
-def _hash_ravel(
-    x: torch.LongTensor, shape: tuple[int, ...], n_indices: int
-) -> torch.LongTensor:
+def _hash_ravel(x: torch.LongTensor, shape: tuple[int, ...]) -> torch.LongTensor:
     Q = x.shape[-1]
     assert Q in [2, 3], "Only implemented for 2D and 3D"
     if Q == 2:
-        indices = x[..., 0] + x[..., 1] * shape[0]
+        indices = x[..., 0] + x[..., 1] * shape[1]
     elif Q == 3:
-        indices = x[..., 0] + x[..., 1] * shape[0] + x[..., 2] * (shape[0] * shape[1])
-    return indices % n_indices
+        indices = x[..., 0] + x[..., 1] * shape[2] + x[..., 2] * (shape[1] * shape[2])
+    return indices
