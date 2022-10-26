@@ -361,6 +361,8 @@ def _hash_ravel(x: torch.LongTensor, shape: tuple[int, ...]) -> torch.LongTensor
         x: (N,...,d) multi-dimensional indices with dimensions indexed (x,y,z,...,d)
         shape: shape of grid (D,...,H,W)
 
+    Returns:
+        ids: (N,...) flat indices compliant with np.ravel_multi_index with order='F'.
     """
     strides = x.new_tensor(shape[::-1]).cumprod(0).roll(1, 0)
     strides[0] = 1
