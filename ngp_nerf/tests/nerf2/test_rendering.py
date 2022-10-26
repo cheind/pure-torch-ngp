@@ -50,8 +50,9 @@ def test_render_volume_stratified():
         color_parts.append(color)
         alpha_parts.append(alpha)
 
-    color = torch.cat(color_parts, 1).view(1, cam.size[0, 1], cam.size[0, 0], 3)
-    alpha = torch.cat(alpha_parts, 1).view(1, cam.size[0, 1], cam.size[0, 0], 1)
+    H, W = cam.size[0, 1], cam.size[0, 0]
+    color = torch.cat(color_parts, 1).view(1, H, W, 3)
+    alpha = torch.cat(alpha_parts, 1).view(1, H, W, 1)
     img2 = torch.cat((color, alpha), -1)
     print((img - img2).abs().max())
     plt.imshow(img.squeeze(0))
