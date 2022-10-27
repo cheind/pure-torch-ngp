@@ -1,15 +1,12 @@
 import json
 from pathlib import Path
-from typing import Optional
 
-
+import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image
-import numpy as np
 
-
-from .cameras import Camera, CameraBatch
+from .cameras import Camera, CameraBatch, MultiViewScene
 
 
 def load_scene_from_json(
@@ -17,7 +14,7 @@ def load_scene_from_json(
     load_images: bool = True,
     device: torch.device = None,
     dtype=torch.float32,
-) -> tuple[CameraBatch, torch.Tensor, Optional[torch.Tensor]]:
+) -> MultiViewScene:
     """Loads scene information from nvidia compatible transforms.json
 
     Params:
@@ -106,8 +103,8 @@ def load_scene_from_json(
         images = torch.stack(images, 0).to(device)
     else:
         images = None
-    return cams, aabb, images
+    return MultiViewScene(cameras=cams, aabb=aabb, images=images)
 
 
 if __name__ == "__main__":
-    cams, aabb, images = load_scene_from_json("data/suzanne/transforms.json")
+    mvs = load_scene_from_json("data/suzanne/transforms.json")
