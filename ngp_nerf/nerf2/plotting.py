@@ -54,9 +54,9 @@ def _checkerboard(shape: tuple[int, ...], k: int = None) -> torch.Tensor:
     See https://stackoverflow.com/questions/72874737
     """
     # nearest h,w multiple of k
-    k = k or max(max(shape) // 100, 1)
-    H = shape[0] + shape[0] % k
-    W = shape[1] + shape[1] % k
+    k = k or max(max(shape) // 20, 1)
+    H = shape[0] + (k - shape[0] % k)
+    W = shape[1] + (k - shape[1] % k)
     indices = torch.stack(
         torch.meshgrid(torch.arange(H // k), torch.arange(W // k), indexing="ij")
     )
@@ -78,7 +78,7 @@ def plot_image(
         rgb = img[:, :3]
         alpha = img[:, 3:4]
         if checkerboard_bg:
-            bg = _checkerboard((H, W)).expand_as(rgb)
+            bg = _checkerboard((H, W)).expand_as(rgb).to(rgb.device)
         else:
             bg = torch.zeros_like(rgb)
 
@@ -96,5 +96,5 @@ def plot_image(
     grid = make_grid(img)
     if ax is None:
         _, ax = plt.subplots()
-    ax.imshow(grid[:3].permute(1, 2, 0).cpu().numpy())
+    ax.imshow(grid[:3].permute(1, 2, 0).detach().cpu().numpy())
     return ax
