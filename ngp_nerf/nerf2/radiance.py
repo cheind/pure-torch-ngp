@@ -70,6 +70,7 @@ class NeRF(torch.nn.Module):
         if aabb is None:
             aabb = torch.tensor([[-1.0] * 3, [1.0] * 3])
         self.register_buffer("aabb", aabb)
+        self.aabb: torch.Tensor
         self.is_hdr = is_hdr
         self.pos_encoder = encoding.MultiLevelHybridHashEncoding(
             n_encodings=n_encodings,
