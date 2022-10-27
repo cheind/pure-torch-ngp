@@ -1,6 +1,6 @@
 import torch
 import torch.nn
-from typing import Union
+from typing import Union, Optional
 
 
 class BaseCamera(torch.nn.Module):
@@ -34,6 +34,15 @@ class BaseCamera(torch.nn.Module):
         K[:, 1, 2] = self.principal_point[:, 1]
         K[:, 2, 2] = 1
         return K
+
+    @property
+    def t4x4(self):
+        N = self.focal_length.shape[0]
+        t = self.focal_length.new_zeros((N, 4, 4))
+        t[:, :3, :3] = self.R
+        t[:, :3, 3] = self.T
+        t[:, -1, -1] = 1
+        return t
 
     def uv_grid(self):
         """Generates uv-pixel grid coordinates.
@@ -142,3 +151,20 @@ class CameraBatch(BaseCamera):
         self.register_buffer("T", torch.cat([c.T for c in cams]), 0)
         self.register_buffer("tnear", torch.cat([c.tnear for c in cams]), 0)
         self.register_buffer("tfar", torch.cat([c.tfar for c in cams]), 0)
+
+
+class MultiViewScene(torch.nn.Module):
+    """A multiple view scene setup."""
+
+    def __init__(
+        self,
+        cameras: BaseCamera,
+        aabb: torch.Tensor,
+        images: Optional[torch.Tensor] = None,
+    ) -> None:
+        super().__init__()
+        self.cameras = cameras
+        self.register_buffer("aabb", aabb)
+        self.register_buffer("images", images)
+        self.aabb: torch.Tensor
+        self.images: torch.Tensor
