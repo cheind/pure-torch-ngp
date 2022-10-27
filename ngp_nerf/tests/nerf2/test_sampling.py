@@ -82,23 +82,38 @@ def test_generate_random_uv_samples():
         width=W,
         height=H,
     )
-    img = torch.randn(1, 1, 3, 4)
+    cams = cameras.CameraBatch([cam, cam])
+    imgs = torch.randn(2, 1, 5, 5).expand(2, 1, 5, 5)
+    N = 1000
+    M = 4
     gen = sampling.generate_random_uv_samples(
-        cam, image=img, n_samples_per_cam=4, subpixel=True
+        cams, image=imgs, n_samples_per_cam=M, subpixel=True
     )
 
-    counter = torch.zeros((1, H, W))
-
     from itertools import islice
+    import torch.nn.functional as F
 
-    for uv, f in islice(gen, 1000):
+    counter = torch.zeros((H, W))
+    for uv, f in islice(gen, N):
+        uvn = (uv + 0.5) * 2 / torch.tensor([[W, H]]) - 1.0
+        f_ref = (
+            F.grid_sample(
+                imgs,
+                uvn.unsqueeze(-2),
+                mode="bilinear",
+                padding_mode="border",
+                align_corners=False,
+            )
+            .squeeze(-1)
+            .permute(0, 2, 1)
+        )
+        assert (f_ref - f).abs().sum() < 1e-5
         uvc = torch.round(uv).long().view(-1, 2)
-        counter[0, uvc[:, 1], uvc[:, 0]] += 1  # problematic for duplicate coords
+        coords, freq = torch.unique(uvc, dim=0, return_counts=True)
+        counter[coords[:, 1], coords[:, 0]] += freq
 
-    print(counter.sum())
-
-    exp_freq = (1000 * 4) / (H * W)
+    # Test for uniform dist
+    exp_freq = (imgs.shape[0] * N * M) / (H * W)
     err = (counter - exp_freq).square().mean().sqrt()
-    print(err)
-
-    print(counter)
+    rel_error = err / counter.sum()
+    assert rel_error < 0.01
