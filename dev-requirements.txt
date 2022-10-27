@@ -13,8 +13,12 @@
 --trusted-host download.pytorch.org
 --trusted-host gitlab.profactor.at
 
+asttokens==2.0.8
+    # via stack-data
 attrs==22.1.0
     # via pytest
+backcall==0.2.0
+    # via ipython
 beautifulsoup4==4.11.1
     # via
     #   -r requirements.txt
@@ -39,8 +43,12 @@ cycler==0.11.0
     # via
     #   -r requirements.txt
     #   matplotlib
+decorator==5.1.1
+    # via ipython
 exceptiongroup==1.0.0
     # via pytest
+executing==1.1.1
+    # via stack-data
 flake8==5.0.4
     # via -r dev-requirements.in
 fonttools==4.37.4
@@ -53,6 +61,10 @@ idna==3.4
     #   requests
 iniconfig==1.1.1
     # via pytest
+ipython==8.5.0
+    # via -r dev-requirements.in
+jedi==0.18.1
+    # via ipython
 kiwisolver==1.4.4
     # via
     #   -r requirements.txt
@@ -65,6 +77,8 @@ matplotlib==3.6.1
     # via
     #   -r requirements.txt
     #   pytransform3d
+matplotlib-inline==0.1.6
+    # via ipython
 mccabe==0.7.0
     # via flake8
 mypy-extensions==0.4.3
@@ -82,8 +96,14 @@ packaging==21.3
     #   -r requirements.txt
     #   matplotlib
     #   pytest
+parso==0.8.3
+    # via jedi
 pathspec==0.10.1
     # via black
+pexpect==4.8.0
+    # via ipython
+pickleshare==0.7.5
+    # via ipython
 pillow==9.2.0
     # via
     #   -r requirements.txt
@@ -93,10 +113,18 @@ platformdirs==2.5.2
     # via black
 pluggy==1.0.0
     # via pytest
+prompt-toolkit==3.0.31
+    # via ipython
+ptyprocess==0.7.0
+    # via pexpect
+pure-eval==0.2.2
+    # via stack-data
 pycodestyle==2.9.1
     # via flake8
 pyflakes==2.5.0
     # via flake8
+pygments==2.13.0
+    # via ipython
 pyparsing==3.0.9
     # via
     #   -r requirements.txt
@@ -126,6 +154,8 @@ soupsieve==2.3.2.post1
     # via
     #   -r requirements.txt
     #   beautifulsoup4
+stack-data==0.5.1
+    # via ipython
 tomli==2.0.1
     # via
     #   black
@@ -138,6 +168,10 @@ torchvision==0.13.1+cu113
     # via -r requirements.txt
 tqdm==4.64.1
     # via -r requirements.txt
+traitlets==5.5.0
+    # via
+    #   ipython
+    #   matplotlib-inline
 typing-extensions==4.4.0
     # via
     #   -r requirements.txt
@@ -148,3 +182,5 @@ urllib3==1.26.12
     # via
     #   -r requirements.txt
     #   requests
+wcwidth==0.2.5
+    # via prompt-toolkit
