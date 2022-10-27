@@ -55,7 +55,35 @@ def render_volume_stratified(
     out_color = color.new_zeros(batch_shape + color.shape[-1:])
     out_alpha = sigma.new_zeros(batch_shape + (1,))
 
-    out_color[ray_hit] = final_color
-    out_alpha[ray_hit] = final_alpha
+    out_color[ray_hit] = final_color.to(out_color.dtype)
+    out_alpha[ray_hit] = final_alpha.to(out_alpha.dtype)
 
     return out_color, out_alpha
+
+
+def render_camera(
+    radiance_field: radiance.RadianceField,
+    aabb: torch.Tensor,
+    cam: cameras.BaseCamera,
+    n_ray_step_samples: int = 100,
+) -> tuple[torch.Tensor, torch.Tensor]:
+
+    gen = sampling.generate_sequential_uv_samples(
+        camera=cam, image=None, n_samples_per_cam=None
+    )
+
+    color_parts = []
+    alpha_parts = []
+    for uv, _ in gen:
+        color, alpha = render_volume_stratified(
+            radiance_field, aabb, cam, uv, n_ray_steps=n_ray_step_samples
+        )
+        color_parts.append(color)
+        alpha_parts.append(alpha)
+
+    N = cam.size.shape[0]
+    C = color_parts[0].shape[-1]
+    H, W = cam.size[0, 1], cam.size[0, 0]
+    color = torch.cat(color_parts, 1).view(N, H, W, C)
+    alpha = torch.cat(alpha_parts, 1).view(N, H, W, 1)
+    return color, alpha
