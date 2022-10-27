@@ -1,7 +1,9 @@
---find-links https://download.pytorch.org/whl/torch_stable.html
+#--find-links https://download.pytorch.org/whl/torch_stable.html
 --extra-index-url https://download.pytorch.org/whl/cu113
 
 numpy
-torch
+torch==1.12.1+cu113
 matplotlib
 tqdm
+pytransform3d
+torchvision==0.13.1+cu113
