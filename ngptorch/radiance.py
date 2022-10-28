@@ -89,10 +89,11 @@ def rasterize_field(
     span = aabb[1] - aabb[0]
     res = aabb.new_tensor(resolution[::-1])
     xyz = aabb[0].expand_as(xyz) + (xyz + 0.5) * (span / res).expand_as(xyz)
+    xyz = xyz.view(-1, 3)
 
     color_parts = []
     sigma_parts = []
-    for batch in xyz.split(batch_size):
+    for batch in xyz.split(batch_size, dim=0):
         rgb, d = rf(batch)
         color_parts.append(rgb)
         sigma_parts.append(d)
