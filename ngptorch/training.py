@@ -160,7 +160,7 @@ def train(
 
                     with torch.no_grad():
                         color, alpha = rendering.render_camera_views(
-                            train_mvs[0],
+                            test_mvs[0],
                             nerf,
                             nerf.aabb,
                             n_ray_step_samples=n_ray_step_samples,
@@ -202,7 +202,7 @@ if __name__ == "__main__":
     )
     nerf = radiance.NeRF(aabb=aabb, **nerf_kwargs).to(dev)
 
-    train_time = 60 * 3
+    train_time = 1 * 60
     train(
         nerf=nerf,
         train_mvs=(camera[:-1], gt_images[:-1]),
@@ -213,6 +213,24 @@ if __name__ == "__main__":
         max_train_secs=train_time,
         dev=dev,
     )
+
+    with torch.no_grad(), torch.cuda.amp.autocast():
+        import numpy as np
+
+        import time
+
+        t = time.time()
+        vol_colors, vol_sigma = radiance.rasterize_field(
+            nerf, nerf.aabb, (512, 512, 512), batch_size=2**18, device=dev
+        )
+        vol_rgbd = torch.cat((vol_colors, vol_sigma), -1).cpu()
+        print(time.time() - t)
+        np.savez(
+            "tmp/volume.npz",
+            rgb=vol_rgbd[..., :3],
+            d=vol_rgbd[..., 3],
+            aabb=nerf.aabb.cpu(),
+        )
 
     # # ax = plotting.plot_camera(mvs.cameras)
     # # ax = plotting.plot_box(mvs.aabb)
