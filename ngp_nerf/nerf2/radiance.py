@@ -6,7 +6,11 @@ import torch.nn
 from . import geometric
 from . import encoding
 
-"""Protocol of a spatial radiance field"""
+"""Protocol of a spatial radiance field.
+
+A spatial radiance field takes positions and returns color and densities values
+for each location.
+"""
 RadianceField = Callable[[torch.Tensor], tuple[torch.Tensor, torch.Tensor]]
 
 
@@ -53,9 +57,59 @@ def integrate_path(
     return final_colors, acc_transm, alpha
 
 
+def rasterize_field(
+    rf: RadianceField,
+    aabb: torch.Tensor,
+    resolution: tuple[int, int, int],
+    batch_size: int = 2**16,
+    device: torch.device = None,
+    dtype: torch.dtype = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Evaluates the radiance field at rasterized grid locations.
+
+    Note, we rasterize at voxel centers.
+
+    Params:
+        nerf: radiance field
+        shape: desired resolution of rasterization in each dimension
+        dev: computation device
+        batch_size: max grid locations per batch
+
+    Returns:
+        color: color values with shape `shape + (C,)` and 'xy' indexing
+        sigma: density values with shape `shape + (1,)` and 'xy' indexing
+    """
+    xyz = geometric.make_grid(
+        resolution,
+        indexing="xy",
+        device=device,
+        dtype=dtype,
+    )
+    span = aabb[1] - aabb[0]
+    res = aabb.new_tensor(resolution[::-1])
+    xyz = aabb[0].expand_as(xyz) + (xyz + 0.5) * (span / res).expand_as(xyz)
+
+    color_parts = []
+    sigma_parts = []
+    for batch in xyz.split(batch_size):
+        rgb, d = rf(batch)
+        color_parts.append(rgb)
+        sigma_parts.append(d)
+    C = color_parts[0].shape[-1]
+    color = torch.cat(color_parts, 0).view(resolution + (C,))
+    sigma = torch.cat(sigma_parts, 0).view(resolution + (1,))
+    return color, sigma
+
+
 class NeRF(torch.nn.Module):
+    """Neural radiance field module.
+
+    Currently supports only spatial features and not view dependent ones.
+    """
+
     def __init__(
         self,
+        aabb: torch.Tensor = None,
         n_colors: int = 3,
         n_hidden: int = 64,
         n_encodings: int = 2**12,
@@ -63,7 +117,6 @@ class NeRF(torch.nn.Module):
         min_res: int = 32,
         max_res: int = 256,
         max_n_dense: int = 256**3,
-        aabb: torch.Tensor = None,
         is_hdr: bool = False,
     ) -> None:
         super().__init__()
