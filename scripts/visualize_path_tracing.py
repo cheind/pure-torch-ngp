@@ -2,7 +2,7 @@ import torch
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
-from ngptorch import rays, radiance
+from ngptorch import radiance, geometric, sampling
 
 
 def main():
@@ -12,43 +12,48 @@ def main():
     plane_n = torch.tensor([1.0, 0.0, 0.0])
     plane_o = torch.tensor([0.2, 0.0, 0.0])
 
-    tnear = torch.tensor([1.0])
-    tfar = torch.tensor([2.0])
+    tnear = torch.tensor([[1.0]])
+    tfar = torch.tensor([[2.0]])
 
-    ts = rays.sample_rays_uniformly(tnear, tfar, 100)
+    ts = sampling.sample_ray_step_stratified(tnear, tfar, 100)
 
     # Estimate colors and density values at sample positions
-    xyz = o[:, None] + ts[..., None] * d[:, None]  # (B,T,3)
-    color = torch.tensor(mpl.colormaps["hsv"](xyz[..., 0].numpy()))  # (B,T,4)
+    xyz = geometric.evaluate_ray(o, d, ts)  # (T,B,3)
+    color = torch.tensor(mpl.colormaps["hsv"](xyz[..., 0].numpy()))  # (T,B,4)
     density = (
-        ((xyz - plane_o[None, None, :]).unsqueeze(-2) @ plane_n[None, None, :, None])
-        .squeeze(-1)
-        .squeeze(-1)
-    )
+        (xyz - plane_o[None, None, :]).unsqueeze(-2) @ plane_n[None, None, :, None]
+    ).squeeze(-1)
     mask = density < 0
     density[mask] = 0.0
     density[~mask] *= 100
+    print(density.shape)
 
     final_colors, transmittance, alpha = radiance.integrate_path(
         color[..., :3], density, ts, tfar
     )
+    print(final_colors)
     plt.vlines(
         plane_o[0], 0.0, 1.0, colors="k", linestyles="--", zorder=3, label="plane"
     )
-    plt.plot(ts[0] - tnear[0], transmittance[0], c="gray", label="transmittance")
     plt.plot(
-        ts[0] - tnear[0], density[0] / density.max(), c="g", label="relative density"
+        ts[:, 0] - tnear[0, 0], transmittance[:, 0], c="gray", label="transmittance"
+    )
+    plt.plot(
+        ts[:, 0] - tnear[0, 0],
+        density[:, 0] / density.max(),
+        c="g",
+        label="relative density",
     )
 
     plt.imshow(
         final_colors.view(1, 1, 3),
-        extent=(ts[0, 0] - tnear[0], ts[0, 0] - tnear[0] + 0.1, 0.5, 0.6),
+        extent=(ts[0, 0, 0] - tnear[0, 0], ts[0, 0, 0] - tnear[0, 0] + 0.1, 0.5, 0.6),
         label="final color",
     )
     plt.scatter(
-        ts[0] - tnear[0],
-        transmittance[0],
-        c=color[0],
+        ts[:, 0] - tnear[0, 0],
+        transmittance[:, 0],
+        c=color[:, 0],
         s=10,
         zorder=2,
         label="sampled colors",
