@@ -1,6 +1,6 @@
 import torch
 import torch.nn
-from typing import Union, Optional
+from typing import Union
 
 
 class MultiViewCamera(torch.nn.Module):
