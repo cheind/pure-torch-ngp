@@ -61,7 +61,7 @@ def render_volume_stratified(
     return out_color, out_alpha
 
 
-def render_camera(
+def render_camera_views(
     cam: cameras.MultiViewCamera,
     radiance_field: radiance.RadianceField,
     aabb: torch.Tensor,
