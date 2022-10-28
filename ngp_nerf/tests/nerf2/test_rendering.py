@@ -2,7 +2,7 @@ import torch
 from torch.testing import assert_close
 import matplotlib as mpl
 
-from ngp_nerf.nerf2 import geo, radiance, cameras, rendering
+from ngp_nerf.nerf2 import geometric, radiance, cameras, rendering
 
 from .test_radiance import ColorGradientRadianceField
 

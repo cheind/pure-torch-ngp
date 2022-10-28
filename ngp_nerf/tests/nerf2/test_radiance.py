@@ -2,7 +2,7 @@ import torch
 from torch.testing import assert_close
 import matplotlib as mpl
 
-from ngp_nerf.nerf2 import geo, radiance
+from ngp_nerf.nerf2 import geometric, radiance
 
 
 class ColorGradientRadianceField(radiance.RadianceField):
@@ -25,7 +25,7 @@ class ColorGradientRadianceField(radiance.RadianceField):
     def __call__(self, xyz: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         dtype = xyz.dtype
         # For cmap we need [0..1] coords
-        nxyz = geo.convert_world_to_box_normalized(xyz, self.aabb) * 0.5 + 0.5
+        nxyz = geometric.convert_world_to_box_normalized(xyz, self.aabb) * 0.5 + 0.5
 
         # Colors (N,...,3)
         colors = self.cmap(nxyz[..., self.surface_dim].cpu().numpy())
@@ -47,7 +47,7 @@ def test_radiance_integrate_path():
     d = torch.tensor([[1.0, 0.0, 0.0]])
 
     ts = torch.linspace(0, 1, 100).view(100, 1, 1)
-    xyz = geo.evaluate_ray(o, d, ts)  # (100,1,3)
+    xyz = geometric.evaluate_ray(o, d, ts)  # (100,1,3)
 
     rf = ColorGradientRadianceField(
         aabb=torch.Tensor([[0.0] * 3, [1.0] * 3]),

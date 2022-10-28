@@ -3,7 +3,7 @@ import torch
 from . import radiance
 from . import cameras
 from . import sampling
-from . import geo
+from . import geometric
 
 
 def render_volume_stratified(
@@ -17,12 +17,12 @@ def render_volume_stratified(
     batch_shape = uv.shape[:-1]
 
     # Get world rays corresponding to pixels (N,...,3)
-    ray_origin, ray_dir, ray_tnear, ray_tfar = geo.world_ray_from_pixel(
+    ray_origin, ray_dir, ray_tnear, ray_tfar = geometric.world_ray_from_pixel(
         cam, uv, normalize_dirs=False
     )
 
     # Intersect rays with AABB
-    ray_tnear, ray_tfar = geo.intersect_ray_aabb(
+    ray_tnear, ray_tfar = geometric.intersect_ray_aabb(
         ray_origin, ray_dir, ray_tnear, ray_tfar, aabb
     )
 
@@ -39,7 +39,7 @@ def render_volume_stratified(
     )
 
     # Evaluate world points (T,V,3)
-    xyz = geo.evaluate_ray(ray_origin, ray_dir, ray_ts)
+    xyz = geometric.evaluate_ray(ray_origin, ray_dir, ray_ts)
 
     # Predict radiance properties
     color, sigma = radiance_field(xyz)

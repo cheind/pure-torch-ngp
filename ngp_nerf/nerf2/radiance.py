@@ -3,7 +3,7 @@ from typing import Callable
 import torch
 import torch.nn
 
-from . import geo
+from . import geometric
 from . import encoding
 
 """Protocol of a spatial radiance field"""
@@ -117,7 +117,7 @@ class NeRF(torch.nn.Module):
         batch_shape = x.shape[:-1]
 
         # We query the hash using normalized box coordinates
-        xn = geo.convert_world_to_box_normalized(x, self.aabb)
+        xn = geometric.convert_world_to_box_normalized(x, self.aabb)
         # Current encoding implementation does not support more
         # than one batch dimension
         xn_flat = xn.view(-1, 3)
