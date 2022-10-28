@@ -163,7 +163,7 @@ def train(
                     import matplotlib.pyplot as plt
 
                     with torch.no_grad():
-                        color, alpha = rendering.render_camera(
+                        color, alpha = rendering.render_camera_views(
                             train_mvs[0],
                             nerf,
                             nerf.aabb,

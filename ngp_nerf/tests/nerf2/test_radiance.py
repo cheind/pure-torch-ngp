@@ -18,14 +18,16 @@ class ColorGradientRadianceField(radiance.RadianceField):
     ):
         self.aabb = aabb
         self.cmap = mpl.colormaps[cmap]
-        self.surface_pos = (surface_pos - aabb[0, 0]) / (aabb[1, 0] - aabb[0, 0])
+        self.surface_pos = (surface_pos - aabb[0, surface_dim]) / (
+            aabb[1, surface_dim] - aabb[0, surface_dim]
+        )
         self.surface_dim = surface_dim
         self.density_scale = density_scale
 
     def __call__(self, xyz: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         dtype = xyz.dtype
-        # For cmap we need [0..1] coords
-        nxyz = geometric.convert_world_to_box_normalized(xyz, self.aabb) * 0.5 + 0.5
+        nxyz = geometric.convert_world_to_box_normalized(xyz, self.aabb)
+        nxyz = (nxyz + 1.0) * 0.5
 
         # Colors (N,...,3)
         colors = self.cmap(nxyz[..., self.surface_dim].cpu().numpy())
@@ -38,7 +40,6 @@ class ColorGradientRadianceField(radiance.RadianceField):
         mask = density < 0
         density[mask] = 0.0
         density[~mask] *= self.density_scale
-
         return colors, density
 
 
@@ -76,16 +77,40 @@ def test_radiance_integrate_path():
     assert ((final_colors > 0.5) & (final_colors < 0.6)).all()
 
 
+def test_radiance_rasterize_field():
+    rf = ColorGradientRadianceField(
+        aabb=torch.Tensor([[0.0] * 3, [1.0] * 3]),
+        surface_pos=0.5,
+        surface_dim=0,
+        density_scale=float("inf"),  # hard surface boundary
+        cmap="gray",
+    )
+
+    # Note, rasterization is not the same as integration
+    # We only query the volume at particular locations
+    color, sigma = radiance.rasterize_field(rf, rf.aabb, resolution=(2, 2, 2))
+    assert color.shape == (2, 2, 2, 3)
+    assert sigma.shape == (2, 2, 2, 1)
+
+    # Note sigma is D,H,W but indexed x,y,z
+    assert (sigma[:, :, 0] < 1e-5).all()
+    assert not (torch.isfinite(sigma[:, :, 1])).any()
+
+    # matplotlib colormaps are not exact
+    assert ((color[:, :, 0] - 0.25) < 1e-2).all()
+    assert ((color[:, :, 1] - 0.75) < 1e-2).all()
+
+
 @torch.no_grad()
 def test_radiance_nerf_module():
     nerf = radiance.NeRF(
-        3,
+        aabb=torch.Tensor([[-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]]),
+        n_colors=3,
         n_hidden=16,
         n_encodings=2**8,
         n_levels=4,
         min_res=16,
         max_res=64,
-        aabb=torch.Tensor([[-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]]),
         is_hdr=False,
     )
 

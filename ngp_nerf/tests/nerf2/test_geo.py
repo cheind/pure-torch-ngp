@@ -1,9 +1,31 @@
 import torch
+import torch.nn.functional as F
 from torch.testing import assert_close
 
 
 from ngp_nerf.nerf2 import cameras, geometric
 from ngp_nerf.linalg import rotation_matrix, dehom
+
+
+def test_make_grid():
+    img = torch.randn(1, 1, 4, 2, 8)  # (N,C,D,H,W)
+    D, H, W = img.shape[-3:]
+    xyz = geometric.make_grid((D, H, W), indexing="xy")
+    assert xyz.shape == (D, H, W, 3)
+    assert all(xyz[2, 1, 3] == torch.tensor([3, 1, 2]))
+
+
+def test_normalize_uv():
+    img = torch.randn(1, 1, 4, 2, 8)  # (N,C,D,H,W)
+    D, H, W = img.shape[-3:]
+    xyz = geometric.make_grid((D, H, W), indexing="xy")
+
+    nxyz = geometric.normalize_uv(xyz, xyz.shape[:-1], indexing="xy")
+    dxyz = geometric.denormalize_uv(nxyz, xyz.shape[:-1], indexing="xy")
+    assert (dxyz == xyz).all()
+
+    imgs = F.grid_sample(img, nxyz.unsqueeze(0), mode="bilinear", align_corners=False)
+    assert (img - imgs).abs().sum() == 0.0
 
 
 def test_uv_unproject():
