@@ -1,8 +1,6 @@
 import torch
-from torch.testing import assert_close
-import matplotlib as mpl
 
-from ngp_nerf.nerf2 import geometric, radiance, cameras, rendering
+from ngptorch import geometric, radiance, cameras, rendering, sampling
 
 from .test_radiance import ColorGradientRadianceField
 
@@ -40,10 +38,9 @@ def test_render_volume_stratified():
 
     color_parts = []
     alpha_parts = []
-    from ngp_nerf.nerf2.sampling import generate_sequential_uv_samples
 
     torch.random.manual_seed(123)
-    for uv, _ in generate_sequential_uv_samples(cam):
+    for uv, _ in sampling.generate_sequential_uv_samples(cam):
         color, alpha = rendering.render_volume_stratified(
             rf, aabb, cam, uv, n_ray_steps=200
         )

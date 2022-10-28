@@ -27,7 +27,9 @@ def make_grid(
     ranges = [torch.arange(r, device=device, dtype=dtype) for r in shape]
     coords = torch.stack(torch.meshgrid(*ranges, indexing="ij"), -1)
     if indexing == "xy":
-        coords = torch.index_select(coords, -1, torch.arange(len(shape)).flip(0))
+        coords = torch.index_select(
+            coords, -1, torch.arange(len(shape), device=device).flip(0)
+        )
     return coords
 
 

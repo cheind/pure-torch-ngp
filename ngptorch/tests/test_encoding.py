@@ -3,7 +3,7 @@ import torch.nn.functional as F
 from torch.testing import assert_close
 
 
-from ngp_nerf.nerf2.encoding import (
+from ngptorch.encoding import (
     MultiLevelHybridHashEncoding,
     _compute_bilinear_params,
     _hash_ravel,

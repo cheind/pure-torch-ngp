@@ -2,7 +2,7 @@ import torch
 import numpy as np
 
 from .nerf import NeRF
-from ngp_nerf import radiance
+from ngptorch import radiance
 
 
 if __name__ == "__main__":

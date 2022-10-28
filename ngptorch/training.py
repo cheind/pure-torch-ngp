@@ -7,17 +7,13 @@ import torch.utils.data
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from ngp_nerf.nerf2 import rendering, radiance
-from ngp_nerf.nerf2.cameras import MultiViewCamera
-
-from . import sampling
-from .radiance import NeRF
+from ngptorch import rendering, radiance, cameras, sampling
 
 
 class MultiViewDataset(torch.utils.data.IterableDataset):
     def __init__(
         self,
-        camera: MultiViewCamera,
+        camera: cameras.MultiViewCamera,
         images: torch.Tensor,
         n_samples_per_cam: int = None,
         random: bool = True,
@@ -60,8 +56,8 @@ class MultiViewDataset(torch.utils.data.IterableDataset):
 def train(
     *,
     nerf: radiance.NeRF,
-    train_mvs: tuple[MultiViewCamera, torch.Tensor],
-    test_mvs: tuple[MultiViewCamera, torch.Tensor],
+    train_mvs: tuple[cameras.MultiViewCamera, torch.Tensor],
+    test_mvs: tuple[cameras.MultiViewCamera, torch.Tensor],
     batch_size: int,
     n_ray_step_samples: int = 40,
     lr: float = 1e-2,
@@ -204,7 +200,7 @@ if __name__ == "__main__":
         max_n_dense=256**3,
         is_hdr=False,
     )
-    nerf = NeRF(aabb=aabb, **nerf_kwargs).to(dev)
+    nerf = radiance.NeRF(aabb=aabb, **nerf_kwargs).to(dev)
 
     train_time = 60 * 3
     train(

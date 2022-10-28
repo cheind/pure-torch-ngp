@@ -2,8 +2,7 @@ import torch
 from torch.testing import assert_close
 
 
-from ngp_nerf.nerf2 import cameras
-from ngp_nerf.linalg import dehom
+from ngptorch import cameras
 
 
 def test_camera_shapes():

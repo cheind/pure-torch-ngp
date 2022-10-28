@@ -1,7 +1,7 @@
 import torch
 from torch.testing import assert_close
 
-from ngp_nerf import linalg
+from ngptorch import linalg
 
 
 def test_hom_dehom():

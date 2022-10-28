@@ -19,6 +19,7 @@ References:
 [1] https://nvlabs.github.io/instant-ngp/assets/mueller2022instant.pdf
 """
 import argparse
+import sys
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -27,8 +28,7 @@ import torch.nn
 import torch.nn.functional as F
 import torch.optim
 
-from ngp_nerf import pixels, metrics
-from ngp_nerf.encoding import MultiLevelHashEncoding
+from ngptorch import metrics, encoding, geometric
 
 from PIL import Image
 from tqdm import tqdm
@@ -43,15 +43,17 @@ class CompressionModule(torch.nn.Module):
         n_levels: int,
         min_res: int,
         max_res: int,
+        max_n_dense: int,
     ) -> None:
         super().__init__()
-        self.encoder = MultiLevelHashEncoding(
+        self.encoder = encoding.MultiLevelHybridHashEncoding(
             n_encodings=n_encodings,
             n_input_dims=2,
             n_embed_dims=2,
             n_levels=n_levels,
             min_res=min_res,
             max_res=max_res,
+            max_n_dense=max_n_dense,
         )
         n_features = self.encoder.n_levels * self.encoder.n_embed_dims
 
@@ -118,8 +120,8 @@ def main():
     img = np.asarray(Image.open(args.image))
     img = torch.tensor(img).permute(2, 0, 1).float() / 255.0
     img = img.to(dev)
-    coords = pixels.generate_grid_coords(img.shape[1:], indexing="xy").to(dev)
-    ncoords = pixels.normalize_coords(coords, indexing="xy").to(dev)
+    coords = geometric.make_grid(img.shape[1:], indexing="xy", device=dev)
+    ncoords = geometric.normalize_uv(coords, coords.shape[:-1], indexing="xy")
 
     # Compute image stats
     mean, std = img.mean((1, 2), keepdim=True), img.std((1, 2), keepdim=True)
@@ -136,6 +138,7 @@ def main():
         n_levels=16,
         min_res=16,
         max_res=max(img.shape[2:]) // 2,
+        max_n_dense=sys.maxsize,
     ).to(dev)
     dofs = compute_dof_rate(net, img)
     print(f"DoFs of input: {dofs*100:.2f}%")
@@ -200,7 +203,7 @@ def main():
     axs[0].imshow(img.permute(1, 2, 0).cpu())
     axs[0].set_title("Input")
     axs[1].imshow(imgrec.permute(1, 2, 0).cpu())
-    axs[1].set_title("Reconstruction 1")
+    axs[1].set_title("Reconstruction")
     axs[2].imshow(err.cpu())
     axs[2].set_title(f"Absolute Error mu={err.mean():2f}, std={err.std():.2f}")
     fig.savefig("tmp/uncompressed.png", dpi=600)

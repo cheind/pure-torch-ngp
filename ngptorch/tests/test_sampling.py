@@ -1,10 +1,7 @@
 import torch
 from torch.testing import assert_close
 
-from ngp_nerf.nerf2 import sampling
-from ngp_nerf.nerf2 import cameras
-
-from ngp_nerf import linalg
+from ngptorch import sampling, cameras, linalg
 
 
 def test_sample_ray_step_stratified():
