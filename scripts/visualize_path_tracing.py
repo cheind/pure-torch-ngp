@@ -2,7 +2,7 @@ import torch
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
-from ngp_nerf import rays, radiance
+from ngptorch import rays, radiance
 
 
 def main():
