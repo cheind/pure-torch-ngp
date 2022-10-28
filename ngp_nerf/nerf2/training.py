@@ -8,26 +8,27 @@ import torch.nn.functional as F
 from tqdm import tqdm
 
 from ngp_nerf.nerf2 import rendering, radiance
+from ngp_nerf.nerf2.cameras import MultiViewCamera
 
 from . import sampling
-from .cameras import MultiViewScene
 from .radiance import NeRF
 
 
 class MultiViewDataset(torch.utils.data.IterableDataset):
     def __init__(
         self,
-        mvs: MultiViewScene,
+        camera: MultiViewCamera,
+        images: torch.Tensor,
         n_samples_per_cam: int = None,
         random: bool = True,
         subpixel: bool = True,
     ):
-        self.mvs = mvs
-        self.n_pixels_per_cam = self.mvs.cameras.size[0].prod().item()
+        self.camera = camera
+        self.images = images
+        self.n_pixels_per_cam = camera.size.prod().item()
         if n_samples_per_cam is None:
-            # width of first cam (one row)
-            n_samples_per_cam = mvs.cameras.size[0, 0].item()
-        assert self.n_pixels_per_cam % n_samples_per_cam == 0
+            # width of image per mini-batch
+            n_samples_per_cam = camera.size[0].item()
         self.n_samples_per_cam = n_samples_per_cam
         self.random = random
         self.subpixel = subpixel if random else False
@@ -36,8 +37,8 @@ class MultiViewDataset(torch.utils.data.IterableDataset):
         if self.random:
             return islice(
                 sampling.generate_random_uv_samples(
-                    camera=self.mvs.cameras,
-                    image=self.mvs.images,
+                    camera=self.camera,
+                    image=self.images,
                     n_samples_per_cam=self.n_samples_per_cam,
                     subpixel=self.subpixel,
                 ),
@@ -45,8 +46,8 @@ class MultiViewDataset(torch.utils.data.IterableDataset):
             )
         else:
             return sampling.generate_sequential_uv_samples(
-                camera=self.mvs.cameras,
-                image=self.mvs.images,
+                camera=self.camera,
+                image=self.images,
                 n_samples_per_cam=self.n_samples_per_cam,
                 n_passes=1,
             )
@@ -59,8 +60,8 @@ class MultiViewDataset(torch.utils.data.IterableDataset):
 def train(
     *,
     nerf: radiance.NeRF,
-    train_mvs: MultiViewScene,
-    test_mvs: MultiViewScene,
+    train_mvs: tuple[MultiViewCamera, torch.Tensor],
+    test_mvs: tuple[MultiViewCamera, torch.Tensor],
     batch_size: int,
     n_ray_step_samples: int = 40,
     lr: float = 1e-2,
@@ -69,9 +70,9 @@ def train(
 ):
     if dev is None:
         dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    nerf.train()
-    train_mvs = train_mvs.to(dev)
-    test_mvs = test_mvs.to(dev)
+    nerf = nerf.train().to(dev)
+    train_mvs = [x.to(dev) for x in train_mvs]
+    test_mvs = [x.to(dev) for x in test_mvs]
 
     opt = torch.optim.AdamW(
         [
@@ -90,13 +91,17 @@ def train(
 
     scaler = torch.cuda.amp.GradScaler()
 
-    n_cams = mvs.cameras.focal_length.shape[0]
+    n_views = train_mvs[0].n_views
     n_worker = 4
-    n_samples_per_cam = mvs.cameras.size[0, 0].item()
-    final_batch_size = max(batch_size // (n_samples_per_cam * n_cams), 1)
+    n_samples_per_cam = train_mvs[0].size[0].item()
+    final_batch_size = max(batch_size // (n_samples_per_cam * n_views), 1)
 
     train_ds = MultiViewDataset(
-        train_mvs, n_samples_per_cam=n_samples_per_cam, random=True, subpixel=True
+        camera=train_mvs[0],
+        images=train_mvs[1],
+        n_samples_per_cam=n_samples_per_cam,
+        random=True,
+        subpixel=True,
     )
     train_dl = torch.utils.data.DataLoader(
         train_ds,
@@ -118,8 +123,8 @@ def train(
             opt.zero_grad()
 
             with torch.cuda.amp.autocast():
-                uv = uv.permute(1, 0, 2, 3).reshape(N, B * M, 2).to(dev)
-                color = color.permute(1, 0, 2, 3).reshape(N, B * M, C).to(dev)
+                uv = uv.permute(1, 0, 2, 3).reshape(N, B * M, 2)
+                color = color.permute(1, 0, 2, 3).reshape(N, B * M, C)
                 rgb, alpha = color[..., :3], color[..., 3:4]
 
                 noise = torch.empty_like(rgb).uniform_(0.0, 1.0)
@@ -132,7 +137,7 @@ def train(
                 pred_rgb, pred_alpha = rendering.render_volume_stratified(
                     nerf,
                     nerf.aabb,
-                    train_mvs.cameras,
+                    train_mvs[0],
                     uv,
                     n_ray_steps=n_ray_step_samples,
                 )
@@ -159,9 +164,9 @@ def train(
 
                     with torch.no_grad():
                         color, alpha = rendering.render_camera(
+                            train_mvs[0],
                             nerf,
                             nerf.aabb,
-                            mvs.cameras,
                             n_ray_step_samples=n_ray_step_samples,
                         )
                         img = torch.cat((color, alpha), -1).permute(0, 3, 1, 2)
@@ -169,51 +174,6 @@ def train(
                         plt.show()
 
                     t_last_dump = time.time()
-
-            #
-            #     # TODO: merge this block with v.render_image
-            #     ts = rays.sample_rays_uniformly(tnear, tfar, n_samples)
-            #     xyz = o[:, None] + ts[..., None] * d[:, None]  # (B,T,3)
-            #     nxyz = rays.normalize_xyz_in_aabb(xyz, aabb_min, aabb_max)
-
-            #     pred_sample_sigma, pred_sample_color = nerf(nxyz.view(-1, 3))
-            #     pred_colors, pred_transm, _ = radiance.integrate_path(
-            #         pred_sample_color.view(-1, n_samples, 3),
-            #         pred_sample_sigma.view(-1, n_samples),
-            #         ts,
-            #         tfar,
-            #     )
-            #     # TODO: the following is not quite correct, should be 1.0 - T(i)*alpha(i)
-            #     pred_alpha = 1.0 - pred_transm[:, -1]
-            #     pred_colors = pred_colors * pred_alpha[..., None] + noise * (
-            #         1 - pred_alpha[..., None]
-            #     )
-
-            #     loss = F.mse_loss(pred_colors, color)
-            #     if t_now - t_last_dump > 30:
-            #         render_test_scenes(
-            #             nerf,
-            #             test_scene,
-            #             dev,
-            #             batch_size,
-            #             n_samples * 4,
-            #             t_now - t_start,
-            #             show=False,
-            #         )
-            #         t_last_dump = t_now
-
-            # loss = scaler.scale(loss)
-            # loss.backward()
-            # scaler.step(opt)
-            # scaler.update()
-            # # opt.step()
-            # sched.step(loss)
-            # pbar_postfix["loss"] = loss.item()
-            # pbar_postfix["lr"] = sched._last_lr
-            # pbar.set_postfix(**pbar_postfix, refresh=False)
-            # step += 1
-            # if (t_now - t_start) > max_train_secs:
-            #     return
 
 
 if __name__ == "__main__":
@@ -225,13 +185,13 @@ if __name__ == "__main__":
     torch.multiprocessing.set_start_method("spawn")
 
     dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    mvs = load_scene_from_json("data/suzanne/transforms.json", load_images=True)
-    plotting.plot_camera(mvs.cameras)
-    plotting.plot_box(mvs.aabb)
+    camera, aabb, gt_images = load_scene_from_json(
+        "data/suzanne/transforms.json", load_images=True
+    )
+    plotting.plot_camera(camera)
+    plotting.plot_box(aabb)
     plt.show()
-    mvs = mvs.to(dev)
 
-    print(mvs.aabb)
     # ds = MultiViewDataset(mvs)
 
     nerf_kwargs = dict(
@@ -244,13 +204,13 @@ if __name__ == "__main__":
         max_n_dense=256**3,
         is_hdr=False,
     )
-    nerf = NeRF(aabb=mvs.aabb, **nerf_kwargs).to(dev)
+    nerf = NeRF(aabb=aabb, **nerf_kwargs).to(dev)
 
     train_time = 60 * 3
     train(
         nerf=nerf,
-        train_mvs=mvs,
-        test_mvs=mvs,
+        train_mvs=(camera[:-1], gt_images[:-1]),
+        test_mvs=(camera[-1:], gt_images[-1:]),
         batch_size=2**16,
         n_ray_step_samples=40,
         lr=1e-2,

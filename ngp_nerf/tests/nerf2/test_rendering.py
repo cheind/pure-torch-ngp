@@ -17,19 +17,19 @@ def test_render_volume_stratified():
         cmap="hsv",
     )
 
-    cam = cameras.Camera(
-        fx=50.0,
-        fy=50.0,
-        cx=15,
-        cy=15,
-        width=31,
-        height=31,
+    cam = cameras.MultiViewCamera(
+        focal_length=[50.0, 50.0],
+        principal_point=[15.0, 15.0],
+        size=[31, 31],
+        R=torch.eye(3),
         T=torch.Tensor([0.5, 0.5, -1.0]),
+        tnear=0.0,
+        tfar=10.0,
     )
 
     torch.random.manual_seed(123)
     color, alpha = rendering.render_volume_stratified(
-        rf, aabb, cam, cam.uv_grid(), n_ray_steps=200
+        rf, aabb, cam, cam.make_uv_grid(), n_ray_steps=200
     )
     img = torch.cat((color, alpha), -1)
 
@@ -50,7 +50,7 @@ def test_render_volume_stratified():
         color_parts.append(color)
         alpha_parts.append(alpha)
 
-    H, W = cam.size[0, 1], cam.size[0, 0]
+    W, H = cam.size
     color = torch.cat(color_parts, 1).view(1, H, W, 3)
     alpha = torch.cat(alpha_parts, 1).view(1, H, W, 1)
     img2 = torch.cat((color, alpha), -1)

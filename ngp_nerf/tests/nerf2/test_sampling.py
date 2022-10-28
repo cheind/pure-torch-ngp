@@ -24,13 +24,14 @@ def test_sample_ray_step_stratified():
 
 def test_generate_sequential_uv_samples():
     H, W = 3, 4
-    cam = cameras.Camera(
-        fx=2.0,
-        fy=2.0,
-        cx=1.0,
-        cy=1.0,
-        width=W,
-        height=H,
+    cam = cameras.MultiViewCamera(
+        focal_length=[2.0, 2.0],
+        principal_point=[1.0, 1.0],
+        size=[W, H],
+        R=torch.eye(3),
+        T=torch.zeros(3),
+        tnear=0.0,
+        tfar=10.0,
     )
 
     # Individual camera
@@ -40,7 +41,7 @@ def test_generate_sequential_uv_samples():
         cam, image=img, n_samples_per_cam=4, n_passes=1
     )
 
-    grid = cam.uv_grid()
+    grid = cam.make_uv_grid()
 
     uv, f = zip(*list(gen))
     assert len(uv) == 3
@@ -57,12 +58,12 @@ def test_generate_sequential_uv_samples():
     assert_close(f[2], imgp[:, 2])
 
     # Same but with batched cameras
-    cams = cameras.CameraBatch([cam, cam])
-    grid = cams.uv_grid()
+    cam = cam[[0, 0]]
+    grid = cam.make_uv_grid()
     img = torch.randn(2, 1, 3, 4)  # nchw
     imgp = img.permute(0, 2, 3, 1)
     gen = sampling.generate_sequential_uv_samples(
-        cams, image=img, n_samples_per_cam=4, n_passes=1
+        cam, image=img, n_samples_per_cam=4, n_passes=1
     )
     uv, f = zip(*list(gen))
     assert len(uv) == 3
@@ -74,20 +75,21 @@ def test_generate_sequential_uv_samples():
 
 def test_generate_random_uv_samples():
     H, W = 5, 5
-    cam = cameras.Camera(
-        fx=2.0,
-        fy=2.0,
-        cx=1.0,
-        cy=1.0,
-        width=W,
-        height=H,
+    cam = cameras.MultiViewCamera(
+        focal_length=[2.0, 2.0],
+        principal_point=[1.0, 1.0],
+        size=[W, H],
+        R=[torch.eye(3), torch.eye(3)],
+        T=[torch.zeros(3), torch.zeros(3)],
+        tnear=0.0,
+        tfar=10.0,
     )
-    cams = cameras.CameraBatch([cam, cam])
+
     imgs = torch.randn(2, 1, 5, 5).expand(2, 1, 5, 5)
     N = 1000
     M = 4
     gen = sampling.generate_random_uv_samples(
-        cams, image=imgs, n_samples_per_cam=M, subpixel=True
+        cam, image=imgs, n_samples_per_cam=M, subpixel=True
     )
 
     from itertools import islice

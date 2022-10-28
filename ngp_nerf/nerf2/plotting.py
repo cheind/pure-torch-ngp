@@ -11,26 +11,27 @@ import pytransform3d.plot_utils as pu
 from torchvision.utils import make_grid
 
 
-from .cameras import BaseCamera
+from .cameras import MultiViewCamera
 
 
-def plot_camera(cam: BaseCamera = None, ax=None, **kwargs):
+def plot_camera(cam: MultiViewCamera, ax=None, **kwargs):
     """Plot camera objects in 3D."""
     if ax is None:
         ax = pu.make_3d_axis(unit="m", ax_s=1.0)
-    N = cam.focal_length.shape[0]
-    e = cam.t4x4.detach().cpu().numpy()
-    k = cam.K.detach().cpu().numpy()
+    N = cam.n_views
+    E = cam.E.detach().cpu().numpy()
+    K = cam.K.detach().cpu().numpy()
+    size = cam.size.detach().cpu().numpy()
 
     for idx in range(N):
         transform_kwargs = {"linewidth": 0.25, "name": str(idx), **kwargs}
         camera_kwargs = {"linewidth": 0.25, **kwargs}
-        pt.plot_transform(A2B=e[idx], s=0.5, ax=ax, **transform_kwargs)
+        pt.plot_transform(A2B=E[idx], s=0.5, ax=ax, **transform_kwargs)
         pc.plot_camera(
             ax=ax,
-            cam2world=e[idx],
-            M=k[idx],
-            sensor_size=cam.size[idx].detach().cpu().numpy(),
+            cam2world=E[idx],
+            M=K,
+            sensor_size=size,
             virtual_image_distance=1.0,
             **camera_kwargs,
         )

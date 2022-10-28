@@ -2,11 +2,11 @@ from typing import Iterator, Optional
 import torch
 import torch.nn.functional as F
 
-from .cameras import BaseCamera
+from .cameras import MultiViewCamera
 
 
 def generate_random_uv_samples(
-    camera: BaseCamera,
+    camera: MultiViewCamera,
     image: torch.Tensor = None,
     n_samples_per_cam: int = None,
     subpixel: bool = True,
@@ -25,10 +25,10 @@ def generate_random_uv_samples(
         uv: (N, n_samples_per_cam, 2) sampled coordinates
         uv_feature (N, n_samples_per_cam, C) samples features
     """
-    N = camera.focal_length.shape[0]
-    M = n_samples_per_cam or camera.size[0, 0].item()
+    N = camera.n_views
+    M = n_samples_per_cam or camera.size[0].item()
 
-    uvn = camera.focal_length.new_empty((N, M, 2))
+    uvn = camera.R.new_empty((N, M, 2))
     # we actually sample from (-1, +1) to avoid issues
     # when rounding to subpixel coords. -0.5 would get mapped to -1.
     bounds = 1.0 - 1e-7
@@ -37,7 +37,7 @@ def generate_random_uv_samples(
         # The following code samples within the valid image area. We treat
         # pixels as squares and integer pixel coords as centers of pixels.
         uvn.uniform_(-bounds, bounds)
-        uv = (uvn + 1.0) * camera.size[:, None, :] * 0.5 - 0.5
+        uv = (uvn + 1.0) * camera.size[None, None, :] * 0.5 - 0.5
 
         if not subpixel:
             # The folloing may create duplicate pixel coords
@@ -55,7 +55,7 @@ def generate_random_uv_samples(
 
 
 def generate_sequential_uv_samples(
-    camera: BaseCamera,
+    camera: MultiViewCamera,
     image: torch.Tensor = None,
     n_samples_per_cam: int = None,
     n_passes: int = 1,
@@ -74,11 +74,11 @@ def generate_sequential_uv_samples(
         uv_feature (N, n_samples_per_cam, C) samples features (row-major)
     """
     # TODO: assumes same image size currently
-    N = camera.focal_length.shape[0]
-    M = n_samples_per_cam or camera.size[0, 0].item()
+    N = camera.n_views
+    M = n_samples_per_cam or camera.size[0].item()
 
-    uv_grid = camera.uv_grid()
-    uvn_grid = (uv_grid + 0.5) * 2 / camera.size.view(N, 1, 1, 2) - 1.0
+    uv_grid = camera.make_uv_grid()
+    uvn_grid = (uv_grid + 0.5) * 2 / camera.size.view(1, 1, 1, 2) - 1.0
     for _ in range(n_passes):
         for uv, uvn in zip(
             uv_grid.view(N, -1, 2).split(M, 1),

@@ -1,10 +1,47 @@
 import torch
+from typing import Union
 
-from .cameras import BaseCamera
+from .cameras import MultiViewCamera
+
+
+def unproject_uv(
+    cam: MultiViewCamera,
+    uv: torch.Tensor = None,
+    depth: Union[float, torch.Tensor] = 1.0,
+) -> torch.Tensor:
+    """Unprojects uv-pixel coordinates to view space.
+
+    Params:
+        cam: Camera
+        uv: (N,...,2) uv coordinates to unproject. If not specified, defaults
+            to all grid coordiantes.
+        depth: scalar or any shape broadcastable to (N,...,1) representing
+            the depths of unprojected pixels.
+
+    Returns:
+        xyz: (N,...,3) tensor of coordinates.
+    """
+    # uv is (N,...,2)
+    if uv is None:
+        uv = cam.make_uv_grid()
+    N = cam.n_views
+    mbatch = uv.shape[1:-1]
+    mbatch_ones = (1,) * len(mbatch)
+
+    if not torch.is_tensor(depth):
+        depth = uv.new_tensor(depth)
+
+    depth = depth.expand((N,) + mbatch + (1,))
+    pp = cam.principal_point.view((1,) + mbatch_ones + (2,))
+    fl = cam.focal_length.view((1,) + mbatch_ones + (2,))
+
+    xy = (uv - pp) / fl * depth
+    xyz = torch.cat((xy, depth), -1)
+    return xyz
 
 
 def world_ray_from_pixel(
-    cam: BaseCamera, uv: torch.Tensor = None, normalize_dirs: bool = False
+    cam: MultiViewCamera, uv: torch.Tensor = None, normalize_dirs: bool = False
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Returns camera rays for each pixel specified in world the frame.
 
@@ -25,14 +62,14 @@ def world_ray_from_pixel(
         ray_tfar: (N,...,1) ray end
     """
     if uv is None:
-        uv = cam.uv_grid()
-    N = cam.focal_length.shape[0]
+        uv = cam.make_uv_grid()
+    N = cam.n_views
     mbatch = uv.shape[1:-1]
     mbatch_ones = (1,) * len(mbatch)
 
     rot = cam.R.view((N,) + mbatch_ones + (3, 3))
     trans = cam.T.view((N,) + mbatch_ones + (3,))
-    xyz = cam.unproject_uv(uv, depth=1.0)
+    xyz = unproject_uv(cam, uv, depth=1.0)
     ray_dir = (rot @ xyz.unsqueeze(-1)).squeeze(-1)
 
     s = 1.0
@@ -41,8 +78,8 @@ def world_ray_from_pixel(
         ray_dir *= s
 
     ray_origin = trans.expand_as(ray_dir)
-    ray_tnear = cam.tnear.view((N,) + mbatch_ones + (1,)).expand(-1, *mbatch, -1) * s
-    ray_tfar = cam.tfar.view((N,) + mbatch_ones + (1,)).expand(-1, *mbatch, -1) * s
+    ray_tnear = cam.tnear.view((1,) + mbatch_ones + (1,)).expand(N, *mbatch, -1) * s
+    ray_tfar = cam.tfar.view((1,) + mbatch_ones + (1,)).expand(N, *mbatch, -1) * s
 
     return ray_origin, ray_dir, ray_tnear, ray_tfar
 

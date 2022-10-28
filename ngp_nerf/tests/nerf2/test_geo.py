@@ -3,25 +3,45 @@ from torch.testing import assert_close
 
 
 from ngp_nerf.nerf2 import cameras, geo
-from ngp_nerf.linalg import rotation_matrix
+from ngp_nerf.linalg import rotation_matrix, dehom
+
+
+def test_uv_unproject():
+    H, W = 5, 10
+    cam = cameras.MultiViewCamera(
+        focal_length=[2.0, 2.0],
+        principal_point=[(W + 1) / 2 - 1, (H + 1) / 2 - 1],
+        size=[W, H],
+        R=[torch.eye(3), torch.eye(3)],
+        T=[torch.tensor([1.0, 2.0, 3.0]), torch.tensor([1.0, 2.0, 3.0])],
+        tnear=0,
+        tfar=10,
+    )
+
+    # referenced 3D points
+    xyz_ref = torch.cat(
+        (torch.empty((2, 10, 2)).uniform_(-10.0, 10.0), torch.ones((2, 10, 1)) * 2), -1
+    )
+    uv_ref = dehom((cam.K.view(1, 1, 3, 3) @ xyz_ref.unsqueeze(-1)).squeeze(-1))
+
+    xyz_un = geo.unproject_uv(cam, uv=uv_ref[..., :2], depth=2)
+    assert_close(xyz_un, xyz_ref)
 
 
 def test_world_rays_shape():
     H, W = 5, 10
-    cam = cameras.Camera(
-        fx=2.0,
-        fy=2.0,
-        cx=(W + 1) / 2 - 1,
-        cy=(H + 1) / 2 - 1,
-        width=W,
-        height=H,
-        R=torch.eye(3),
-        T=torch.tensor([1.0, 2.0, 3.0]),
+    cam = cameras.MultiViewCamera(
+        focal_length=[2.0, 2.0],
+        principal_point=[(W + 1) / 2 - 1, (H + 1) / 2 - 1],
+        size=[W, H],
+        R=[torch.eye(3), torch.eye(3)],
+        T=[torch.tensor([1.0, 2.0, 3.0]), torch.tensor([1.0, 2.0, 3.0])],
+        tnear=0,
+        tfar=10,
     )
-    cb = cameras.CameraBatch([cam, cam])
 
     ray_origin, ray_dir, ray_tnear, ray_tfar = geo.world_ray_from_pixel(
-        cb, cb.uv_grid(), normalize_dirs=True
+        cam, cam.make_uv_grid(), normalize_dirs=True
     )
     assert ray_origin.shape == (2, H, W, 3)
     assert ray_dir.shape == (2, H, W, 3)
@@ -30,21 +50,20 @@ def test_world_rays_shape():
 
 
 def test_world_rays_origins_directions():
+
     H, W = 3, 3
-    cam = cameras.Camera(
-        fx=2.0,
-        fy=2.0,
-        cx=1.0,
-        cy=1.0,
-        width=W,
-        height=H,
+    cam = cameras.MultiViewCamera(
+        focal_length=[2.0, 2.0],
+        principal_point=[1.0, 1.0],
+        size=[W, H],
         R=rotation_matrix(torch.tensor([0.0, 0.0, 1.0]), torch.tensor(torch.pi)),
         T=torch.tensor([1.0, 2.0, 3.0]),
+        tnear=0,
+        tfar=100,
     )
-    cb = cameras.CameraBatch([cam, cam])
-
+    cam = cam[[0, 0]]
     ray_origin, ray_dir, ray_tnear, ray_tfar = geo.world_ray_from_pixel(
-        cb, cb.uv_grid(), normalize_dirs=False
+        cam, cam.make_uv_grid(), normalize_dirs=False
     )
     assert_close(ray_tnear, torch.tensor([0.0]).expand_as(ray_tnear))
     assert_close(ray_tfar, torch.tensor([100.0]).expand_as(ray_tfar))
@@ -53,8 +72,8 @@ def test_world_rays_origins_directions():
         :, 1, 1, :
     ]  # ray through princ. point should match z-dir of R.
 
-    assert_close(ray_origin, cb.T.view(-1, 1, 1, 3).expand_as(ray_origin))
-    assert_close(center_dir, cb.R[..., 2])
+    assert_close(ray_origin, cam.T.view(-1, 1, 1, 3).expand_as(ray_origin))
+    assert_close(center_dir, cam.R[..., 2])
 
 
 def test_ray_aabb_intersection():

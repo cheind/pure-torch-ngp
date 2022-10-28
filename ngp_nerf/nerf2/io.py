@@ -1,12 +1,12 @@
 import json
 from pathlib import Path
-
+from typing import Optional
 import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image
 
-from .cameras import Camera, CameraBatch, MultiViewScene
+from .cameras import MultiViewCamera
 
 
 def load_scene_from_json(
@@ -14,7 +14,7 @@ def load_scene_from_json(
     load_images: bool = True,
     device: torch.device = None,
     dtype=torch.float32,
-) -> MultiViewScene:
+) -> tuple[MultiViewCamera, torch.Tensor, Optional[torch.Tensor]]:
     """Loads scene information from nvidia compatible transforms.json
 
     Params:
@@ -24,7 +24,7 @@ def load_scene_from_json(
         dtype: return data using this dtype
 
     Returns:
-        cam: batch of N cameras
+        camera: multi-view camera parameters
         aabb: (2,3) tensor containing min/max corner of world aabb
         images: (N,H,W,4) optional RGBA images normalized to [0..1] range
     """
@@ -47,7 +47,7 @@ def load_scene_from_json(
     )
 
     camera_common_kwargs = {
-        "fx": data["fl_x"],
+        "f": data["fl_x"],
         "fy": data["fl_y"],
         "cx": data["cx"],
         "cy": data["cy"],
@@ -55,8 +55,9 @@ def load_scene_from_json(
         "height": data["h"],
     }
 
-    cams = []
-    images = []
+    Rs = []
+    Ts = []
+    view_images = []
     for frame in data["frames"]:
         # Handle image
         if load_images:
@@ -66,7 +67,7 @@ def load_scene_from_json(
                 continue
             img = Image.open(imgpath).convert("RGBA")
             img = torch.tensor(np.asarray(img)).to(dtype).permute(2, 0, 1) / 255.0
-            images.append(img)
+            view_images.append(img)
 
         # Handle extrinsics. Correct non-orthonormal rotations.
         # That's the case for some frames of the fox-dataset.
@@ -88,23 +89,25 @@ def load_scene_from_json(
         flip[2, 2] = -1
 
         t = (t @ flip).to(dtype)
-        cams.append(
-            Camera(
-                R=t[:3, :3],
-                T=t[:3, 3],
-                tnear=0.0,
-                tfar=10.0,
-                **camera_common_kwargs,
-            )
-        )
+        Rs.append(t[:3, :3])
+        Ts.append(t[:3, 3])
 
-    cams = CameraBatch(cams).to(device)
+    camera = MultiViewCamera(
+        focal_length=[data["fl_x"], data["fl_y"]],
+        principal_point=[data["cx"], data["cy"]],
+        size=[data["w"], data["h"]],
+        tnear=0.0,
+        tfar=10,
+        R=Rs,
+        T=Ts,
+    )
+
+    images = None
     if load_images:
-        images = torch.stack(images, 0).to(device)
-    else:
-        images = None
-    return MultiViewScene(cameras=cams, aabb=aabb, images=images)
+        images = torch.stack(view_images, 0).to(device)
+
+    return camera, aabb, images
 
 
 if __name__ == "__main__":
-    mvs = load_scene_from_json("data/suzanne/transforms.json")
+    camera, aabb, images = load_scene_from_json("data/suzanne/transforms.json")

@@ -9,7 +9,7 @@ from . import geo
 def render_volume_stratified(
     radiance_field: radiance.RadianceField,
     aabb: torch.Tensor,
-    cam: cameras.BaseCamera,
+    cam: cameras.MultiViewCamera,
     uv: torch.Tensor,
     n_ray_steps: int = 100,
 ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -62,9 +62,9 @@ def render_volume_stratified(
 
 
 def render_camera(
+    cam: cameras.MultiViewCamera,
     radiance_field: radiance.RadianceField,
     aabb: torch.Tensor,
-    cam: cameras.BaseCamera,
     n_ray_step_samples: int = 100,
 ) -> tuple[torch.Tensor, torch.Tensor]:
 
@@ -81,9 +81,9 @@ def render_camera(
         color_parts.append(color)
         alpha_parts.append(alpha)
 
-    N = cam.size.shape[0]
+    N = cam.n_views
     C = color_parts[0].shape[-1]
-    H, W = cam.size[0, 1], cam.size[0, 0]
+    W, H = cam.size
     color = torch.cat(color_parts, 1).view(N, H, W, C)
     alpha = torch.cat(alpha_parts, 1).view(N, H, W, 1)
     return color, alpha
