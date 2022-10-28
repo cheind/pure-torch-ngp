@@ -1,15 +1,11 @@
-import numpy as np
-import matplotlib as mpl
 import matplotlib.pyplot as plt
+import numpy as np
+import pytransform3d.camera as pc
+import pytransform3d.plot_utils as pu
+import pytransform3d.transformations as pt
 import torch
 import torch.nn.functional as F
-
-import pytransform3d.camera as pc
-import pytransform3d.transformations as pt
-import pytransform3d.plot_utils as pu
-
 from torchvision.utils import make_grid
-
 
 from .cameras import MultiViewCamera
 
