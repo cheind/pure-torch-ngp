@@ -29,7 +29,8 @@ def integrate_path(
 
     Returns:
         color: (N,...,C) final colors for each ray
-        sample_transmittance: (T,N,...,1) accumulated transmittance for each ray and step
+        sample_transmittance: (T,N,...,1) accumulated transmittance
+            for each ray and step
         sample_alpha: (T,N,...,1) alpha transparency values for ray and step
 
     References:
