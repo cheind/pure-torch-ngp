@@ -33,8 +33,9 @@ def test_render_volume_stratified():
 
     import matplotlib.pyplot as plt
 
-    plt.imshow(img.squeeze(0))
-    plt.show()
+    # TODO: test this
+    # plt.imshow(img.squeeze(0))
+    # plt.show()
 
     color_parts = []
     alpha_parts = []
@@ -52,5 +53,6 @@ def test_render_volume_stratified():
     alpha = torch.cat(alpha_parts, 1).view(1, H, W, 1)
     img2 = torch.cat((color, alpha), -1)
     print((img - img2).abs().max())
-    plt.imshow(img.squeeze(0))
-    plt.show()
+    # plt.imshow(img.squeeze(0))
+    # plt.show()
+    # TODO: test this
