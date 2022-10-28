@@ -1,6 +1,7 @@
 from typing import Iterator, Optional
 import torch
 import torch.nn.functional as F
+import torch.distributions as D
 
 from .cameras import MultiViewCamera
 
@@ -129,6 +130,51 @@ def sample_ray_step_stratified(
     )  # (b,N,...,1)
     ts = tnear_bins + (td / n_bins) * u
     return ts
+
+
+def sample_ray_step_informed(
+    ts: torch.Tensor,
+    tnear: torch.Tensor,
+    tfar: torch.Tensor,
+    weights: torch.Tensor,
+    n_samples: int,
+) -> torch.Tensor:
+    """
+
+    Params:
+        ts: (T,N,...,1) input ray step values
+        tnear: (N,...,1) ray start values
+        tfar: (N,...,1) ray end values
+        weights: (T,N,...,1) weight for each ray step value
+        n_samples: number of samples to generate
+
+    Returns
+        ts_informed: (n_samples,N,...,1) samples following the
+            weight distribution
+    """
+
+    # Create PMF of weights
+    pmf = weights / weights.sum(0, keepdim=True)  # (T,N,...,1)
+    # Create CDF for inverse uniform sampling
+    cdf = pmf.cumsum(dim=0)
+    # Generate n_samples+1 sorted uniform samples per batch
+    # See https://cs.stackexchange.com/a/50553/154714
+    e: torch.Tensor = D.Exponential(torch.Tensor([1.0]), device=cdf.device).sample(
+        (n_samples + 1,) + ts.shape[1:]
+    )
+    u = e.cumsum(0)
+    u /= u.sum(0, keepdim=True)
+    u = u[:-1]  # last one is not valid
+
+    # Invoke the inverse CDF by locating the low/high bins U samples
+    # fall into (add 2 pseudo values front and back corresponding to tnear, tfar)
+    # into cdf and also concat with ts.
+    # sorted_sequence = torch.tensor([0-1e-5, 0.0, 0.5, 0.8, 1.0, 1.0+1e-5])
+    # low =torch.searchsorted(sorted_sequence, torch.tensor([0.0]), side="right") - 1
+    # then final = uniform(0,1)*(ts[low+1]-ts[low]) + ts[low], assuming that we
+    # have linear ramps between two support points of cdf, instead of flat region.
+    # note, torch.searchsorted needs the innermost dimension sorted, so we need
+    # to go to (N,...,1,T) using x.transpose(0,-1)
 
 
 def _sample_features_uv(
