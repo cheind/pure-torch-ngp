@@ -4,6 +4,114 @@ from typing import Union
 from .cameras import MultiViewCamera
 
 
+def make_grid(
+    shape: tuple[int, ...],
+    indexing: str = "xy",
+    device: torch.device = None,
+    dtype: torch.dtype = None,
+) -> torch.LongTensor:
+    """Generalized mesh-grid routine.
+
+    torch.meshgrid `indexing='xy'` only works for 2 dimensions and switches to 'ij'
+    for more than two dimensions. This method is consistent for any number of dims.
+
+    Params:
+        shape: shape of grid to generate coordinates for
+        indexing: order of coordinates in last-dimension
+        device: device to put it on
+        dtype: dtype to return
+
+    Returns:
+        coords: (shape,)+(dims,) tensor
+    """
+    ranges = [torch.arange(r, device=device, dtype=dtype) for r in shape]
+    coords = torch.stack(torch.meshgrid(*ranges, indexing="ij"), -1)
+    if indexing == "xy":
+        coords = torch.index_select(coords, -1, torch.arange(len(shape)).flip(0))
+    return coords
+
+
+def make_uv_grid(cam: MultiViewCamera):
+    """Generates uv-pixel grid coordinates for all views in camera.
+
+    Params:
+        cam: multi view camera
+
+    Returns:
+        uv: (N,H,W,2) tensor of grid coordinates using
+            'xy' indexing.
+    """
+    N = cam.n_views
+    dev = cam.focal_length.device
+    dtype = cam.focal_length.dtype
+    uv = (
+        make_grid(
+            (cam.size[1], cam.size[0]),
+            indexing="xy",
+            device=dev,
+            dtype=dtype,
+        )
+        .unsqueeze(0)
+        .expand(N, -1, -1, -1)
+    )
+    return uv
+
+
+def normalize_uv(
+    x: torch.Tensor, spatial_shape: tuple[int, ...], indexing: str = "xy"
+) -> torch.Tensor:
+    """Transforms UV pixel coordinates to spatial [-1,+1] range
+
+    We treat pixels as squares with centers at integer coordinates. This method
+    converts UV coordinates in the image plane to normalized UV coordinates. That
+    is a coordinate of (-0.5,-0.5) gets mapped to (-1,-1) and (W-1+0.5,H-1+0.5) to
+    (+1,+1). The generated coordinates with `align_corners=False` setting of
+    `torch.nn.functional.grid_sample`.
+
+    This method generalizes straight forward to more than 2 dimensions.
+
+    Params:
+        x: (N,...,K) unnormalized coordinates in K dimensions
+        spatial_shape: K-tuple of dimensions
+        indexing: how the coordinate dimension (last) is indexed.
+
+    Returns:
+        xn: normalized coordinates
+    """
+
+    if indexing == "xy":
+        spatial_shape = spatial_shape[::-1]
+
+    sizes = x.new_tensor(spatial_shape).expand_as(x)
+
+    # suitable for align_corners=False
+    return (x + 0.5) * 2 / sizes - 1.0
+
+
+def denormalize_uv(
+    xn: torch.Tensor, spatial_shape: tuple[int, ...], indexing: str = "xy"
+) -> torch.Tensor:
+    """De-normalize pixel coordinates from [-1,+1] to 0..spatial_shape-1.
+
+    Reverse operation to `normalize_uv`.
+
+    Params:
+        xn: (N,...,K) normalized coordinates in K dimensions
+        spatial_shape: K-tuple of dimensions
+        indexing: how the coordinate dimension (last) is indexed.
+
+    Returns:
+        x: de-normalized coordinates
+    """
+
+    if indexing == "xy":
+        spatial_shape = spatial_shape[::-1]
+
+    sizes = xn.new_tensor(spatial_shape).expand_as(xn)
+
+    return (xn + 1) * sizes * 0.5 - 0.5
+
+
 def unproject_uv(
     cam: MultiViewCamera,
     uv: torch.Tensor = None,
