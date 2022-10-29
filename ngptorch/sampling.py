@@ -193,7 +193,7 @@ def sample_ray_step_informed(
         xyone[..., 1:, :],
         xyone[..., :-1, :],
         dim=-1,
-    )  # (N,...,T+1,3), ax+by+c=0
+    )  # (N,...,T+1,3), at+bu+c=0
     print(xyone.shape, lines.shape)
 
     # Generate n_samples+1 sorted uniform samples per batch
@@ -206,33 +206,13 @@ def sample_ray_step_informed(
     u = u[..., :-1] / u[..., -1:]  # last one is not valid, # (N,...,n_samples)
 
     # Invoke the inverse CDF: x=CDF^-1(u) by locating the left-edge of the bin
-    # u belongs to. This gives us also the linear segment
+    # u belongs to. This gives us also the linear segment which we solve for t given u
+    # t = -(bu+c)/a
     low = torch.searchsorted(cdf, u, side="right") - 1  # (N,...,n_samples)
     low = low.unsqueeze(-1).expand(low.shape + (3,))  # (N,...,n_samples,3)
     uline = torch.gather(lines, dim=-2, index=low)
-    t = -(uline[..., 2] + uline[..., 0] * u) / uline[..., 1]
+    t = -(uline[..., 1] * u + uline[..., 2]) / (uline[..., 0] + eps)
     return t.movedim(-1, 0).unsqueeze(-1)  # (T,N,...,1)
-
-    # fall into (add 2 pseudo values front and back corresponding to tnear, tfar)
-    # into cdf and also concat with ts.
-    # sorted_sequence = torch.tensor([0-1e-5, 0.0, 0.5, 0.8, 1.0, 1.0+1e-5])
-    # low =torch.searchsorted(sorted_sequence, torch.tensor([0.0]), side="right") - 1
-    # then final = uniform(0,1)*(ts[low+1]-ts[low]) + ts[low], assuming that we
-    # have linear ramps between two support points of cdf, instead of flat region.
-    # note, the above idea with uniform sample in low-high is nice but would break
-    # sorted order if two samples fall into the same bin. so instead, assume linear
-    # function between low and high and compute intersection. Use homogeneous coordinates
-    # and cross
-    # In [2]: a = torch.tensor([7,2,1.])
-    # In [3]: b = torch.tensor([3., -2, 1.])
-    # In [4]: line = torch.cross(a,b) -> 4,-4,-20 = 4x - 4y -20 = 0
-    # then to find the intersection, turn u into a horizontal line
-    # uline = torch.cross(torch.tensor([0.0,u,1.0]), torch.tensor([1.0,u,1.0]))
-    # uline == torch.tensor([0.0, 1.0, -u])
-    # x = torch.cross(line, uline)
-    # x = x / x[-1]
-    # note, torch.searchsorted needs the innermost dimension sorted, so we need
-    # to go to (N,...,1,T) using x.transpose(0,-1)
 
 
 def _sample_features_uv(
