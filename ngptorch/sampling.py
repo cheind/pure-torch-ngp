@@ -154,28 +154,47 @@ def sample_ray_step_informed(
     """
 
     # For computational reasons we shuffle the T dimension to last
-    ts = ts.movedim(0, -1)  # (N,...,1,T)
-    weights = weights.movedim(0, -1)  # (N,...,1,T)
+    ts = ts.squeeze(-1).movedim(0, -1)  # (N,...,T)
+    weights = weights.squeeze(-1).movedim(0, -1)  # (N,...,T)
 
     print("ts", ts.shape)
 
     # Create PMF over weights per ray
-    pmf = weights / weights.sum(-1, keepdim=True)  # (N,...,1,T)
+    pmf = weights / weights.sum(-1, keepdim=True)  # (N,...,T)
     # Create CDF for inverse uniform sampling
-    cdf = pmf.cumsum(dim=-1)  # (N,...,1,T)
+    cdf = pmf.cumsum(dim=-1)  # (N,...,T)
     # For boundary constraints, we add -eps to front and 1+eps to end of CDF.
     # These correspond to sample positions tnear and tfar
     eps = 1e-5
     cdf = torch.cat(
         (
-            torch.tensor([-eps]).expand(cdf.shape[:-1] + (1,)),
+            cdf.new_tensor([-eps]).expand(cdf.shape[:-1] + (1,)),
             cdf,
-            torch.tensor([1 + eps]).expand(cdf.shape[:-1] + (1,)),
+            cdf.new_tensor([1 + eps]).expand(cdf.shape[:-1] + (1,)),
         ),
         -1,
-    )  # (N,...,1,T+2)
+    )  # (N,...,T+2)
     print(cdf.shape)
-    ts = torch.cat((tnear.unsqueeze(-1), ts, tfar.unsqueeze(-1)), -1)  # (N,...,1,T+2)
+    ts = torch.cat((tnear, ts, tfar), -1)  # (N,...,T+2)
+    print(ts.shape)
+
+    # Piecewise linear functions of CDFs between consecutive
+    # ts/cdf sample points. Using tools from perspective geometry
+    # to construct lines
+    xyone = torch.stack(
+        (
+            ts,
+            cdf,
+            cdf.new_tensor(1.0).expand(ts.shape),
+        ),
+        -1,
+    )
+    lines = torch.cross(
+        xyone[..., 1:, :],
+        xyone[..., :-1, :],
+        dim=-1,
+    )  # (N,...,T+1,3), ax+by+c=0
+    print(xyone.shape, lines.shape)
 
     # Generate n_samples+1 sorted uniform samples per batch
     # See https://cs.stackexchange.com/a/50553/154714
@@ -184,14 +203,15 @@ def sample_ray_step_informed(
     )
     u = e.cumsum(-1)
     print(u.shape)
-    u = u[..., :-1] / u[..., -1:]
-    print("u", u.shape)
-    # u = u[..., :-1]  # last one is not valid, # (N,...,1,T)
+    u = u[..., :-1] / u[..., -1:]  # last one is not valid, # (N,...,n_samples)
 
     # Invoke the inverse CDF: x=CDF^-1(u) by locating the left-edge of the bin
-    # u belongs to
-    low = torch.searchsorted(cdf, u, side="right") - 1
-    print(low.shape)
+    # u belongs to. This gives us also the linear segment
+    low = torch.searchsorted(cdf, u, side="right") - 1  # (N,...,n_samples)
+    low = low.unsqueeze(-1).expand(low.shape + (3,))  # (N,...,n_samples,3)
+    uline = torch.gather(lines, dim=-2, index=low)
+    t = -(uline[..., 2] + uline[..., 0] * u) / uline[..., 1]
+    return t.movedim(-1, 0).unsqueeze(-1)  # (T,N,...,1)
 
     # fall into (add 2 pseudo values front and back corresponding to tnear, tfar)
     # into cdf and also concat with ts.
@@ -237,9 +257,16 @@ def _sample_features_uv(
 
 if __name__ == "__main__":
     print("here")
-    ts = torch.rand(20, 2, 1) * 5 + 0.5
+    B = 10000
+    T = 100
+    S = 100
+    ts = torch.rand(T, B, 1) * 5 + 0.5
     tnear = ts.min(0)[0] - 1.0
     tfar = ts.max(0)[0] + 1.0
-    weights = torch.rand(20, 2, 1)
+    weights = torch.rand(T, B, 1)
+    t = sample_ray_step_informed(ts, tnear, tfar, weights, S)
+    print(t.shape)
 
-    sample_ray_step_informed(ts, tnear, tfar, weights, 10)
+    t_first = t[:, 0, 0]
+    print(((t_first[1:] - t_first[0]) >= 0.0).all())
+    # print(t)
