@@ -173,6 +173,18 @@ def sample_ray_step_informed(
     # low =torch.searchsorted(sorted_sequence, torch.tensor([0.0]), side="right") - 1
     # then final = uniform(0,1)*(ts[low+1]-ts[low]) + ts[low], assuming that we
     # have linear ramps between two support points of cdf, instead of flat region.
+    # note, the above idea with uniform sample in low-high is nice but would break
+    # sorted order if two samples fall into the same bin. so instead, assume linear
+    # function between low and high and compute intersection. Use homogeneous coordinates
+    # and cross
+    # In [2]: a = torch.tensor([7,2,1.])
+    # In [3]: b = torch.tensor([3., -2, 1.])
+    # In [4]: line = torch.cross(a,b) -> 4,-4,-20 = 4x - 4y -20 = 0
+    # then to find the intersection, turn u into a horizontal line
+    # uline = torch.cross(torch.tensor([0.0,u,1.0]), torch.tensor([1.0,u,1.0]))
+    # uline == torch.tensor([0.0, 1.0, -u])
+    # x = torch.cross(line, uline)
+    # x = x / x[-1]
     # note, torch.searchsorted needs the innermost dimension sorted, so we need
     # to go to (N,...,1,T) using x.transpose(0,-1)
 
