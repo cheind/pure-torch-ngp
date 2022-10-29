@@ -255,20 +255,3 @@ def _sample_features_uv(
         .permute(0, 2, 1)
     )
     return features_uv
-
-
-if __name__ == "__main__":
-    print("here")
-    B = 10000
-    T = 100
-    S = 100
-    ts = torch.rand(T, B, 1) * 5 + 0.5
-    tnear = ts.min(0)[0] - 1.0
-    tfar = ts.max(0)[0] + 1.0
-    weights = torch.rand(T, B, 1)
-    t = sample_ray_step_informed(ts, tnear, tfar, weights, S)
-    print(t.shape)
-
-    t_first = t[:, 0, 0]
-    print(((t_first[1:] - t_first[0]) >= 0.0).all())
-    # print(t)
