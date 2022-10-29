@@ -96,10 +96,10 @@ def generate_sequential_uv_samples(
 def sample_ray_step_stratified(
     ray_tnear: torch.Tensor, ray_tfar: torch.Tensor, n_bins: int
 ) -> torch.Tensor:
-    """Creates stratified ray step samples between tnear/tfar.
+    """Creates stratified ray step random samples between tnear/tfar.
 
-    The returned samples per ray are guaranteed to be
-    sorted in ascending order.
+    The returned samples per ray are guaranteed to be sorted
+    in step ascending order.
 
     Params:
         ray_tnear: (N,...,1) ray start
@@ -139,7 +139,29 @@ def sample_ray_step_informed(
     weights: torch.Tensor,
     n_samples: int,
 ) -> torch.Tensor:
-    """
+    """(Re)samples ray steps from a per-ray probability
+    distribution estimated from a discrete set of weights.
+
+    The returned samples per ray are guaranteed to be sorted in
+    ascending step order.
+
+    This method makes use of inverse transformation sampling, which states
+    that one can generate samples from f(x) by reparametrizing uniform [0..1]
+    samples using the inverse CDF. In this implementation we first estimate
+    a piecewise constant CDF using the given sample weights. Then, for a given
+    uniform random variable u, we locate corresponding t-bin the sample falls
+    into using binary searching over the CDF values. Given the bin-edges
+    [t-low, t-high), we next assume uniform distribution accross the bin,
+    which translates to a linear segment between the two points (t-low,cdf-low)
+    (t-high,cdf-high). Finally we compute the t-value corresponding to u.
+
+    To ensure ordered samples along the ray step direction, we first ensure
+    that our random uniform samples u are ordered via sampling/integrating
+    from an exponential distribution. Since the CDF is monotonically increasing,
+    and u is ordered, the calculated t-samples will also be ordered. Quick note
+    for future reference, the order may be broken if one locates the CDF bin,
+    but then samples random uniform variable from that bin-length. In case multiple
+    u map to the same bin, the order of u may be messed up.
 
     Params:
         ts: (T,N,...,1) input ray step values
