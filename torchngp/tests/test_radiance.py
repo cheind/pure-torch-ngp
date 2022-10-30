@@ -2,7 +2,7 @@ import torch
 from torch.testing import assert_close
 import matplotlib as mpl
 
-from ngptorch import geometric, radiance
+from torchngp import geometric, radiance
 
 
 class ColorGradientRadianceField(radiance.RadianceField):

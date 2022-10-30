@@ -1,7 +1,7 @@
 import torch
 import matplotlib.pyplot as plt
 
-from ngptorch import sampling
+from torchngp import sampling
 
 
 def compute_weights(ts: torch.Tensor):

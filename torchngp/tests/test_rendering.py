@@ -1,6 +1,6 @@
 import torch
 
-from ngptorch import geometric, radiance, cameras, rendering, sampling
+from torchngp import geometric, radiance, cameras, rendering, sampling
 
 from .test_radiance import ColorGradientRadianceField
 

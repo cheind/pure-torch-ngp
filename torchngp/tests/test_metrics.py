@@ -1,7 +1,7 @@
 import torch
 import math
 
-from ngptorch.metrics import peak_signal_noise_ratio
+from torchngp.metrics import peak_signal_noise_ratio
 
 
 def test_psnr():

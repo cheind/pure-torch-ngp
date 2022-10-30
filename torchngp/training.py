@@ -7,7 +7,7 @@ import torch.utils.data
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from ngptorch import rendering, radiance, cameras, sampling
+from torchngp import rendering, radiance, cameras, sampling
 
 
 class MultiViewDataset(torch.utils.data.IterableDataset):

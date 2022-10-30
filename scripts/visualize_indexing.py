@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from ngptorch import hashing
+from torchngp import hashing
 
 
 def main():

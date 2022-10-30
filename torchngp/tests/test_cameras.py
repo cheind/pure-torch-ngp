@@ -2,7 +2,7 @@ import torch
 from torch.testing import assert_close
 
 
-from ngptorch import cameras
+from torchngp import cameras
 
 
 def test_camera_shapes():

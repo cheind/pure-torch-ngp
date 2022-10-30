@@ -2,7 +2,7 @@ import torch
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
-from ngptorch import radiance, geometric, sampling
+from torchngp import radiance, geometric, sampling
 
 
 def plot_density_scale(ds, show=True):

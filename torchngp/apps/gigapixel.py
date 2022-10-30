@@ -28,7 +28,7 @@ import torch.nn
 import torch.nn.functional as F
 import torch.optim
 
-from ngptorch import metrics, encoding, geometric
+from torchngp import metrics, encoding, geometric
 
 from PIL import Image
 from tqdm import tqdm
