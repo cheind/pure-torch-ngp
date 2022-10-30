@@ -186,6 +186,8 @@ if __name__ == "__main__":
     )
     plotting.plot_camera(camera)
     plotting.plot_box(aabb)
+    plt.gca().set_aspect("equal")
+    plt.gca().autoscale()
     plt.show()
 
     # ds = MultiViewDataset(mvs)
