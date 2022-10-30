@@ -24,6 +24,6 @@ based off pure PyTorch functionality. Currently the tasks learning Neural Radian
 -   Automatically generate camera views for scene
 -   Export scene to `transforms.json` for NeRF training
 
-## Runtime
+## Performance considerations
 
 This implementation is roughly an order of magnitude slower than the original implementation. That is, it runs in minutes what takes the original implementation only seconds. In particular we haven't implemented acceleration structures to speed up learning and we miss an integrated real-time viewer.
