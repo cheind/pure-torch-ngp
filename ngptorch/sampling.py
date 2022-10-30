@@ -140,8 +140,8 @@ def sample_ray_step_informed(
     weights: torch.Tensor,
     n_samples: int,
 ) -> torch.Tensor:
-    """(Re)samples ray steps from a per-ray probability
-    distribution estimated from a discrete set of weights.
+    """(Re)samples ray steps from a per-ray probability distribution
+    estimated by a discrete set of weights.
 
     The returned samples per ray are guaranteed to be sorted in ascending
     order along the ray.
