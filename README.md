@@ -1,4 +1,4 @@
-# torchngp
+# pure-torch-ngp
 
 This repository contains an inofficial implementation of
 
