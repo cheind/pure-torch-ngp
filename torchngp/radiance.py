@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Callable, Union
 
 import torch
 import torch.nn
@@ -15,23 +15,31 @@ RadianceField = Callable[[torch.Tensor], tuple[torch.Tensor, torch.Tensor]]
 
 
 def integrate_path(
-    color: torch.Tensor, sigma: torch.Tensor, ts: torch.Tensor, tfar: torch.Tensor
+    color: torch.Tensor,
+    sigma: torch.Tensor,
+    ts: torch.Tensor,
+    tfar: torch.Tensor,
+    initial_transmittance: Union[torch.Tensor, float] = 1.0,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Integrates the color integral for multiple rays.
 
-    This implementation is a batched version of equations (1,3) in [1].
+    This implementation is a batched version of equations (1,3) in [1]. In
+    addition this method allows the specification of an initial transmittance,
+    which allows evaluating the integral in parts. This is particularly useful
+    for incremental computations, such as determining early ray terminations.
 
     Params:
         color: (T,N,...,C) color samples C for (N,...) rays at steps (T,).
         sigma: (T,N,...,1) volume density for each ray (N,...) and step (T,).
         ts: (T,N,...,1) parametric ray step parameters
         tfar: (N,...,1) ray end values
+        initial_transmittance: (N,...,1) optional initial transmittance values.
+            Defaults to 1.0 if not specified.
 
     Returns:
-        color: (N,...,C) final colors for each ray
-        sample_transmittance: (T,N,...,1) accumulated transmittance
-            for each ray and step
-        sample_alpha: (T,N,...,1) alpha transparency values for ray and step
+        color: (T,N,...,C) accumulated colors per sample step
+        transmittance: (T,N,...,1) accumulated transmittance per sample step
+        alpha: (T,N,...,1) alpha transparency values per sample step
 
     References:
         [1] NeRF: Representing Scenes as
@@ -45,17 +53,17 @@ def integrate_path(
 
     # Alpha values (T,N,...,1)
     sigma_mul_delta = sigma * delta
-    alpha = 1.0 - (-sigma_mul_delta).exp()
+    sample_alpha = 1.0 - (-sigma_mul_delta).exp()
 
     # Accumulated transmittance - this is an exclusive cumsum
     # (T,N,...,1)
-    acc_transm = sigma_mul_delta.cumsum(0).roll(1, 0)
-    acc_transm[0] = 0
-    acc_transm = (-acc_transm).exp()
+    log_sample_transm = sigma_mul_delta.cumsum(0).roll(1, 0)
+    sample_transm = (-log_sample_transm).exp()
+    sample_transm[0] = initial_transmittance
 
-    final_colors = (acc_transm * alpha * color).sum(0)
+    sample_colors = (sample_transm * sample_alpha * color).cumsum(0)
 
-    return final_colors, acc_transm, alpha
+    return sample_colors, sample_transm, sample_alpha
 
 
 def rasterize_field(

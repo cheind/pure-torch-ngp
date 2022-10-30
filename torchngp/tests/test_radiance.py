@@ -58,10 +58,10 @@ def test_radiance_integrate_path():
     )
 
     color, density = rf(xyz)
-    final_colors, transmittance, alpha = radiance.integrate_path(
+    out_colors, transmittance, alpha = radiance.integrate_path(
         color, density, ts, torch.tensor([[1.0]])
     )
-    assert_close(final_colors, torch.tensor([[0.2, 0.2, 0.2]]))
+    assert_close(out_colors[-1], torch.tensor([[0.2, 0.2, 0.2]]))
 
     # Test soft transit and move plane
     rf = ColorGradientRadianceField(
@@ -71,10 +71,10 @@ def test_radiance_integrate_path():
         cmap="gray",
     )
     color, density = rf(xyz)
-    final_colors, transmittance, alpha = radiance.integrate_path(
+    out_colors, transmittance, alpha = radiance.integrate_path(
         color, density, ts, torch.tensor([[1.0]])
     )
-    assert ((final_colors > 0.5) & (final_colors < 0.6)).all()
+    assert ((out_colors[-1] > 0.5) & (out_colors[-1] < 0.6)).all()
 
 
 def test_radiance_rasterize_field():

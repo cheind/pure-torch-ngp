@@ -44,18 +44,18 @@ def render_volume_stratified(
     # Predict radiance properties
     color, sigma = radiance_field(xyz)
 
-    # Integrate color (T,N,...,C) -> (N,...,C), others are per-sample
-    final_color, sample_transm, sample_alpha = radiance.integrate_path(
+    # (T,N,...,C) -> (T,N,...,C)
+    integ_color, integ_transm, sample_alpha = radiance.integrate_path(
         color, sigma, ray_ts, ray_tfar
     )
 
     # TODO: the following is not quite correct, should be 1.0 - T(i)*alpha(i)
-    final_alpha = 1.0 - sample_transm[-1]
+    final_alpha = 1.0 - integ_transm[-1]
 
     out_color = color.new_zeros(batch_shape + color.shape[-1:])
     out_alpha = sigma.new_zeros(batch_shape + (1,))
 
-    out_color[ray_hit] = final_color.to(out_color.dtype)
+    out_color[ray_hit] = integ_color[-1].to(out_color.dtype)
     out_alpha[ray_hit] = final_alpha.to(out_alpha.dtype)
 
     return out_color, out_alpha
