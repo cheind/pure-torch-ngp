@@ -6,7 +6,7 @@ This repository contains an unofficial implementation of
 > Thomas Müller, Alex Evans, Christoph Schied, Alexander Keller @
 > ACM Transactions on Graphics (SIGGRAPH 2022)
 
-based off pure PyTorch functionality. Currently the tasks learning Neural Radiance Fields and Gigapixel image approximation are implemented.
+based off pure PyTorch functionality. Currently, the tasks learning Neural Radiance Fields and Gigapixel image approximation are implemented.
 
 ## NeRF Features
 
