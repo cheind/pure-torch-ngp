@@ -1,12 +1,12 @@
 # torchngp
 
-This repository contains an unofficial implementation of
+This repository contains an inofficial implementation of
 
 > "Instant Neural Graphics Primitives with a Multiresolution Hash Encoding" by
 > Thomas Müller, Alex Evans, Christoph Schied, Alexander Keller @
 > ACM Transactions on Graphics (SIGGRAPH 2022)
 
-based off pure PyTorch functionality. Currently, the tasks of learning Neural Radiance Fields and approximating Gigapixel images are implemented.
+based strictly on PyTorch functionality. Currently, the tasks of learning Neural Radiance Fields and approximating Gigapixel images are implemented.
 
 ## NeRF Features
 
