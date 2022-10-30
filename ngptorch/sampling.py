@@ -1,4 +1,5 @@
 from typing import Iterator, Optional
+from pyparsing import line
 import torch
 import torch.nn.functional as F
 import torch.distributions as D
@@ -142,26 +143,32 @@ def sample_ray_step_informed(
     """(Re)samples ray steps from a per-ray probability
     distribution estimated from a discrete set of weights.
 
-    The returned samples per ray are guaranteed to be sorted in
-    ascending step order.
+    The returned samples per ray are guaranteed to be sorted in ascending
+    order along the ray.
 
     This method makes use of inverse transformation sampling, which states
-    that one can generate samples from f(x) by reparametrizing uniform [0..1]
-    samples using the inverse CDF. In this implementation we first estimate
-    a piecewise constant CDF using the given sample weights. Then, for a given
-    uniform random variable u, we locate corresponding t-bin the sample falls
-    into using binary searching over the CDF values. Given the bin-edges
-    [t-low, t-high), we next assume uniform distribution accross the bin,
-    which translates to a linear segment between the two points (t-low,cdf-low)
-    (t-high,cdf-high). Finally we compute the t-value corresponding to u.
+    that one can generate samples from `f(t)` by reparametrizing uniform
+    `[0,1]` samples `u` via the inverse CDF `t=F^-1(u))`.
+
+    In this implementation, we first estimate a piecewise constant CDF from
+    the PMF of the given sample weights. Since we need continuous samples `t`,
+    we need to assume a non-constant CDF between any two bins. We select a
+    uniform distribution. In terms of the CDF this transforms the piecewise
+    constant CDF to a piecewise linear CDF.
+
+    To generate a sample `t`, we first sample u from `[0,1]` uniformly. We implement
+    `F^-1(u)` by first searching for the CDF bin indices (t-low, t-high) `u` belongs
+    to. Then we compute the resulting sample t by solving a linear equation
+    `at+bu+c=0` for t. The linear equation found as the line connecting the two points
+    `(t-low,cdf-low)`and `(t-high,cdf-high)`.
 
     To ensure ordered samples along the ray step direction, we first ensure
-    that our random uniform samples u are ordered via sampling/integrating
+    that our random uniform samples `u` are ordered via sampling/integrating
     from an exponential distribution. Since the CDF is monotonically increasing,
-    and u is ordered, the calculated t-samples will also be ordered. Quick note
-    for future reference, the order may be broken if one locates the CDF bin,
-    but then samples random uniform variable from that bin-length. In case multiple
-    u map to the same bin, the order of u may be messed up.
+    and `u` is ordered, the calculated t-samples will also be ordered. Quick warning
+    for future reference: the order will be broken if one locates the CDF bin,
+    but then samples random uniform variable from that bin: for multiple `u` mapping
+    to the same bin, resulting `t` would not be ordered in general.
 
     Params:
         ts: (T,N,...,1) input ray step values
@@ -179,15 +186,14 @@ def sample_ray_step_informed(
     ts = ts.squeeze(-1).movedim(0, -1)  # (N,...,T)
     weights = weights.squeeze(-1).movedim(0, -1)  # (N,...,T)
 
-    print("ts", ts.shape)
-
     # Create PMF over weights per ray
     pmf = weights / weights.sum(-1, keepdim=True)  # (N,...,T)
     # Create CDF for inverse uniform sampling
     cdf = pmf.cumsum(dim=-1)  # (N,...,T)
-    # For boundary constraints, we add -eps to front and 1+eps to end of CDF.
-    # These correspond to sample positions tnear and tfar
-    eps = 1e-5
+
+    # For boundary constraints, we add -eps to front and 1+eps to
+    # end of CDF. These correspond to sample positions tnear and tfar
+    eps = torch.finfo(cdf.dtype).eps
     cdf = torch.cat(
         (
             cdf.new_tensor([-eps]).expand(cdf.shape[:-1] + (1,)),
@@ -196,9 +202,7 @@ def sample_ray_step_informed(
         ),
         -1,
     )  # (N,...,T+2)
-    print(cdf.shape)
     ts = torch.cat((tnear, ts, tfar), -1)  # (N,...,T+2)
-    print(ts.shape)
 
     # Piecewise linear functions of CDFs between consecutive
     # ts/cdf sample points. Using tools from perspective geometry
@@ -216,7 +220,6 @@ def sample_ray_step_informed(
         xyone[..., :-1, :],
         dim=-1,
     )  # (N,...,T+1,3), at+bu+c=0
-    print(xyone.shape, lines.shape)
 
     # Generate n_samples+1 sorted uniform samples per batch
     # See https://cs.stackexchange.com/a/50553/154714
@@ -224,7 +227,6 @@ def sample_ray_step_informed(
         ts.shape[:-1] + (n_samples + 1,)
     )
     u = e.cumsum(-1)
-    print(u.shape)
     u = u[..., :-1] / u[..., -1:]  # last one is not valid, # (N,...,n_samples)
 
     # Invoke the inverse CDF: x=CDF^-1(u) by locating the left-edge of the bin
@@ -232,8 +234,8 @@ def sample_ray_step_informed(
     # t = -(bu+c)/a
     low = torch.searchsorted(cdf, u, side="right") - 1  # (N,...,n_samples)
     low = low.unsqueeze(-1).expand(low.shape + (3,))  # (N,...,n_samples,3)
-    uline = torch.gather(lines, dim=-2, index=low)
-    t = -(uline[..., 1] * u + uline[..., 2]) / (uline[..., 0] + eps)
+    uline = torch.gather(lines, dim=-2, index=low)  # (N,...,n_samples,3)
+    t = -(uline[..., 1] * u + uline[..., 2]) / (uline[..., 0] + eps)  # avoid div 0
     return t.movedim(-1, 0).unsqueeze(-1)  # (T,N,...,1)
 
 
