@@ -121,8 +121,14 @@ def sample_ray_step_stratified(
     batch_shape = ray_tnear.shape
     batch_ones = (1,) * len(batch_shape)
 
-    u = ray_tnear.new_empty((n_bins,) + ray_tnear.shape).uniform_(
-        0.0, 1.0
+    # The shape of uniform samples is chosen so that the same stratified samples
+    # will be generated for a single call with input shape (N,...) or consecutive
+    # calls with mini-batches of N when the initial random state matches. This is
+    # mostly required for testing purposes.
+    u = (
+        ray_tnear.new_empty(ray_tnear.shape + (n_bins,))
+        .uniform_(0.0, 1.0)
+        .movedim(-1, 0)
     )  # (b,N,...,1)
     ifrac = torch.arange(n_bins, dtype=dtype, device=dev) / n_bins
     td = (ray_tfar - ray_tnear).unsqueeze(0)  # (1,N,...,1)

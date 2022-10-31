@@ -25,6 +25,28 @@ def test_sample_ray_step_stratified():
     assert (ts[1:] - ts[:-1] >= 0).all()
 
 
+def test_sample_ray_step_stratified_repeated_same_as_once():
+    torch.random.manual_seed(123)
+
+    ts_once = sampling.sample_ray_step_stratified(
+        torch.tensor(0.0).view(1, 1).expand(100, 1),
+        torch.tensor(1.0).view(1, 1).expand(100, 1),
+        n_bins=100,
+    )
+
+    torch.random.manual_seed(123)
+    ts_repeated = [
+        sampling.sample_ray_step_stratified(
+            torch.tensor(0.0).view(1, 1).expand(10, 1),
+            torch.tensor(1.0).view(1, 1).expand(10, 1),
+            n_bins=100,
+        )
+        for _ in range(10)
+    ]
+    ts_repeated = torch.cat(ts_repeated, 1)
+    assert_close(ts_once, ts_repeated)
+
+
 def test_sample_ray_step_informed():
 
     torch.random.manual_seed(456)
