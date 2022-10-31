@@ -58,7 +58,8 @@ def integrate_path(
 
     # Accumulated transmittance - this is an exclusive cumsum
     # (T,N,...,1)
-    # TODO: fix the following for part integrations.
+    # TODO: fix the following for part integrations. We need to take
+    # log_transmittance values and add and add it to cumsum term.
     log_sample_transm = -sigma_mul_delta.cumsum(0).roll(1, 0)
     sample_transm = (log_sample_transm).exp()
     sample_transm[0] = initial_transmittance
