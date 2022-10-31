@@ -27,21 +27,21 @@ def plot_density_scale(ds, show=True):
     density[~mask] *= ds
 
     out_color, out_transm, out_alpha = radiance.integrate_path(
-        color[..., :3], density, ts, tfar
+        color[..., :3], density, torch.cat((ts, tfar.unsqueeze(0)), 0)
     )
     fig, ax = plt.subplots(figsize=(8, 8))
     fig.text(0.35, 0.9, f"density scale factor {ds:.1f}")
     ax.vlines(
-        plane_o[0], 0.0, 1.0, colors="k", linestyles="--", zorder=3, label="plane"
+        plane_o[0], -0.1, 1.3, colors="k", linestyles="--", zorder=3, label="plane"
     )
 
     shifted_ts = ts[:, 0] - tnear[0, 0]
     ax.plot(shifted_ts, out_transm[:, 0], c="gray", label="transmittance")
     ax.plot(
         shifted_ts,
-        density[:, 0] / density.max(),
+        density[:, 0],
         c="g",
-        label="relative density",
+        label="density",
     )
 
     ax.imshow(
@@ -74,7 +74,7 @@ def plot_density_scale(ds, show=True):
     plt.ylim(0.0, 1.2)
     plt.suptitle("Path tracing")
 
-    plt.legend(loc="upper center", ncols=2)
+    plt.legend(loc="upper right", ncols=2)
     plt.savefig(f"etc/path_tracing_{ds}.png", dpi=300)
 
     return fig
@@ -83,6 +83,7 @@ def plot_density_scale(ds, show=True):
 def main():
     fig = plot_density_scale(10)
     fig2 = plot_density_scale(100)
+    fig3 = plot_density_scale(float("inf"))
 
     plt.show()
 

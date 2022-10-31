@@ -57,9 +57,10 @@ def test_radiance_integrate_path():
         cmap="gray",
     )
 
+    ts_padded = torch.cat((ts, torch.tensor(1.0).view(1, 1, 1)), 0)
     color, density = rf(xyz)
     out_colors, transmittance, alpha = radiance.integrate_path(
-        color, density, ts, torch.tensor([[1.0]])
+        color, density, ts_padded
     )
     assert_close(out_colors[-1], torch.tensor([[0.2, 0.2, 0.2]]))
 
@@ -72,8 +73,9 @@ def test_radiance_integrate_path():
     )
     color, density = rf(xyz)
     out_colors, transmittance, alpha = radiance.integrate_path(
-        color, density, ts, torch.tensor([[1.0]])
+        color, density, ts_padded, 0
     )
+
     assert ((out_colors[-1] > 0.5) & (out_colors[-1] < 0.6)).all()
 
 

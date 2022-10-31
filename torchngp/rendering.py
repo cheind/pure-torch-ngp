@@ -44,9 +44,9 @@ def render_volume_stratified(
     # Predict radiance properties
     color, sigma = radiance_field(xyz)
 
-    # (T,N,...,C) -> (T,N,...,C)
+    # Integrate colors along rays
     integ_color, integ_transm, sample_alpha = radiance.integrate_path(
-        color, sigma, ray_ts, ray_tfar
+        color, sigma, torch.cat((ray_ts, ray_tfar.unsqueeze(0)), 0)
     )
 
     # TODO: the following is not quite correct, should be 1.0 - T(i)*alpha(i)

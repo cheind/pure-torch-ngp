@@ -18,7 +18,6 @@ def integrate_path(
     color: torch.Tensor,
     sigma: torch.Tensor,
     ts: torch.Tensor,
-    tfar: torch.Tensor,
     initial_transmittance: Union[torch.Tensor, float] = 1.0,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Integrates the color integral for multiple rays.
@@ -31,8 +30,8 @@ def integrate_path(
     Params:
         color: (T,N,...,C) color samples C for (N,...) rays at steps (T,).
         sigma: (T,N,...,1) volume density for each ray (N,...) and step (T,).
-        ts: (T,N,...,1) parametric ray step parameters
-        tfar: (N,...,1) ray end values
+        ts: (T+1,N,...,1) parametric ray time step values. We need one more than
+            actual samples to be computed. Usually this is set to ray tfar.
         initial_transmittance: (N,...,1) optional initial transmittance values.
             Defaults to 1.0 if not specified.
 
@@ -48,11 +47,13 @@ def integrate_path(
     """
 
     # delta[i] is defined as the segment lengths between ts[i+1] and ts[i]
-    delta = ts[1:] - ts[:-1]  # (T-1,N,...,1)
-    delta = torch.cat((delta, tfar.unsqueeze(0)), 0)  # (T,N,...,1)
+    delta = ts[1:] - ts[:-1]  # (T+1,N,...,1) -> (T,N,...,1)
 
     # Alpha values (T,N,...,1)
-    sigma_mul_delta = sigma * delta
+    # Eps is necessary because in testing sigma is often inf and if delta
+    # is zero then 0.0*float('inf')=nan
+    eps = torch.finfo(delta.dtype).eps
+    sigma_mul_delta = sigma * (delta + eps)
     sample_alpha = 1.0 - (-sigma_mul_delta).exp()
 
     # Accumulated transmittance - this is an exclusive cumsum
