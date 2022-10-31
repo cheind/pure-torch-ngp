@@ -71,7 +71,7 @@ def plot_density_scale(ds, show=True):
     ax.set_ylabel("transmittance/density")
     # ax.set_aspect("equal")
     plt.xlim(-0.1, 1.1)
-    plt.ylim(0.0, 1.2)
+    plt.ylim(-0.1, 1.2)
     plt.suptitle("Path tracing")
 
     plt.legend(loc="upper right", ncols=2)

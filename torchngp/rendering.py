@@ -49,8 +49,7 @@ def render_volume_stratified(
         color, sigma, torch.cat((ray_ts, ray_tfar.unsqueeze(0)), 0)
     )
 
-    # TODO: the following is not quite correct, should be 1.0 - T(i)*alpha(i)
-    final_alpha = 1.0 - integ_transm[-1]
+    final_alpha = 1.0 - integ_transm[-1] * sample_alpha[-1]
 
     out_color = color.new_zeros(batch_shape + color.shape[-1:])
     out_alpha = sigma.new_zeros(batch_shape + (1,))
