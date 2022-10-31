@@ -28,7 +28,7 @@ def test_render_volume_stratified():
 
     torch.random.manual_seed(123)
     color, alpha = rendering.render_volume_stratified(
-        rf, aabb, cam, cam.make_uv_grid(), n_ray_steps=200
+        rf, aabb, cam, cam.make_uv_grid(), n_ray_t_steps=200
     )
     img = torch.cat((color, alpha), -1)
 
@@ -44,7 +44,7 @@ def test_render_volume_stratified():
     torch.random.manual_seed(123)
     for uv, _ in sampling.generate_sequential_uv_samples(cam):
         color, alpha = rendering.render_volume_stratified(
-            rf, aabb, cam, uv, n_ray_steps=200
+            rf, aabb, cam, uv, n_ray_t_steps=200
         )
         color_parts.append(color)
         alpha_parts.append(alpha)

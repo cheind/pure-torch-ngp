@@ -11,7 +11,7 @@ def render_volume_stratified(
     aabb: torch.Tensor,
     cam: cameras.MultiViewCamera,
     uv: torch.Tensor,
-    n_ray_steps: int = 100,
+    n_ray_t_steps: int = 100,
 ) -> tuple[torch.Tensor, torch.Tensor]:
 
     batch_shape = uv.shape[:-1]
@@ -35,7 +35,7 @@ def render_volume_stratified(
 
     # Sample ray steps (T,V,1)
     ray_ts = sampling.sample_ray_step_stratified(
-        ray_tnear, ray_tfar, n_bins=n_ray_steps
+        ray_tnear, ray_tfar, n_samples=n_ray_t_steps
     )
 
     # Evaluate world points (T,V,3)
