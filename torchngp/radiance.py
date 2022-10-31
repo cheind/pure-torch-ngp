@@ -58,8 +58,9 @@ def integrate_path(
 
     # Accumulated transmittance - this is an exclusive cumsum
     # (T,N,...,1)
-    log_sample_transm = sigma_mul_delta.cumsum(0).roll(1, 0)
-    sample_transm = (-log_sample_transm).exp()
+    # TODO: fix the following for part integrations.
+    log_sample_transm = -sigma_mul_delta.cumsum(0).roll(1, 0)
+    sample_transm = (log_sample_transm).exp()
     sample_transm[0] = initial_transmittance
 
     sample_colors = (sample_transm * sample_alpha * color).cumsum(0)
