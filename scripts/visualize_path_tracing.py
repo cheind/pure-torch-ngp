@@ -26,9 +26,10 @@ def plot_density_scale(ds, show=True):
     density[mask] = 0.0
     density[~mask] *= ds
 
-    out_color, out_transm, out_alpha = radiance.integrate_path(
+    out_color, out_log_transm = radiance.integrate_path(
         color[..., :3], density, torch.cat((ts, tfar.unsqueeze(0)), 0)
     )
+    out_transm = out_log_transm.exp()
     fig, ax = plt.subplots(figsize=(8, 8))
     fig.text(0.35, 0.9, f"density scale factor {ds:.1f}")
     ax.vlines(
@@ -36,7 +37,7 @@ def plot_density_scale(ds, show=True):
     )
 
     shifted_ts = ts[:, 0] - tnear[0, 0]
-    ax.plot(shifted_ts, out_transm[:, 0], c="gray", label="transmittance")
+    ax.plot(shifted_ts, out_transm[:-1, 0], c="gray", label="transmittance")
     ax.plot(
         shifted_ts,
         density[:, 0],
@@ -51,7 +52,7 @@ def plot_density_scale(ds, show=True):
     plt.text(0.01, 0.45, "final color")
     ax.scatter(
         shifted_ts,
-        out_transm[:, 0],
+        out_transm[:-1, 0],
         c=color[:, 0],
         s=20,
         zorder=2,
@@ -59,7 +60,7 @@ def plot_density_scale(ds, show=True):
     )
     ax.scatter(
         shifted_ts,
-        out_transm[:, 0] + 0.04,
+        out_transm[:-1, 0] + 0.04,
         c=out_color[:, 0],
         s=20,
         marker="s",

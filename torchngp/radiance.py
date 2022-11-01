@@ -2,6 +2,7 @@ from typing import Callable, Union
 
 import torch
 import torch.nn
+import torch.nn.functional as F
 
 from . import geometric
 from . import encoding
@@ -18,7 +19,7 @@ def integrate_path(
     color: torch.Tensor,
     sigma: torch.Tensor,
     ts: torch.Tensor,
-    initial_transmittance: Union[torch.Tensor, float] = 1.0,
+    prev_log_transmittance: Union[torch.Tensor, float] = 0.0,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Integrates the color integral for multiple rays.
 
@@ -32,41 +33,46 @@ def integrate_path(
         sigma: (T,N,...,1) volume density for each ray (N,...) and step (T,).
         ts: (T+1,N,...,1) parametric ray time step values. We need one more than
             actual samples to be computed. Usually this is set to ray tfar.
-        initial_transmittance: (N,...,1) optional initial transmittance values.
-            Defaults to 1.0 if not specified.
+        prev_log_transmittance: (1,N,...,1) or broadcastable initial log
+            transmittance values per ray. Useful when combining colors from
+            several path parts.
 
     Returns:
         color: (T,N,...,C) accumulated colors per sample step
-        transmittance: (T,N,...,1) accumulated transmittance per sample step
-        alpha: (T,N,...,1) alpha transparency values per sample step
+        log_transmittance: (T+1,N,...,1) accumulated log-transmittance
+            per sample step. At index t we have the log-transmittance
+            accumulated up to the t-th time step position.
 
     References:
         [1] NeRF: Representing Scenes as
         Neural Radiance Fields for View Synthesis
         https://arxiv.org/pdf/2003.08934.pdf
     """
+    eps = torch.finfo(ts.dtype).eps
 
     # delta[i] is defined as the segment lengths between ts[i+1] and ts[i]
     delta = ts[1:] - ts[:-1]  # (T+1,N,...,1) -> (T,N,...,1)
 
-    # Alpha values (T,N,...,1)
     # Eps is necessary because in testing sigma is often inf and if delta
     # is zero then 0.0*float('inf')=nan
-    eps = torch.finfo(delta.dtype).eps
-    sigma_mul_delta = sigma * (delta + eps)
-    sample_alpha = 1.0 - (-sigma_mul_delta).exp()
+    sigma_delta = sigma * (delta + eps)
 
-    # Accumulated transmittance - this is an exclusive cumsum
-    # (T,N,...,1)
-    # TODO: fix the following for part integrations. We need to take
-    # log_transmittance values and add and add it to cumsum term.
-    log_sample_transm = -sigma_mul_delta.cumsum(0).roll(1, 0)
-    sample_transm = (log_sample_transm).exp()
-    sample_transm[0] = initial_transmittance
+    # We construct a full-cumsum which has the following form
+    # full_cumsum([1,2,3]) = [0,1,3,6]
+    sigma_delta = F.pad(
+        sigma_delta,
+        (0,) * 2 * (sigma.dim() - 1) + (1, 0),
+        mode="constant",
+        value=0.0,
+    )
+    log_transm = -sigma_delta.cumsum(0) + prev_log_transmittance  # (T+1,N,...,1)
 
-    sample_colors = (sample_transm * sample_alpha * color).cumsum(0)
+    transm = log_transm.exp()
+    weights = transm[:-1] - transm[1:]  # (T,N,...,1)
 
-    return sample_colors, sample_transm, sample_alpha
+    integrated_colors = (weights * color).cumsum(0)
+
+    return integrated_colors, log_transm
 
 
 def rasterize_field(
