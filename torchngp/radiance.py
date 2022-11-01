@@ -20,13 +20,18 @@ def integrate_path(
     sigma: torch.Tensor,
     ts: torch.Tensor,
     prev_log_transmittance: Union[torch.Tensor, float] = 0.0,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Integrates the color integral for multiple rays.
 
     This implementation is a batched version of equations (1,3) in [1]. In
-    addition this method allows the specification of an initial transmittance,
+    addition this method allows the specification of an initial log-transmittance,
     which allows evaluating the integral in parts. This is particularly useful
     for incremental computations, such as determining early ray terminations.
+
+        T(i)*alpha(i) = exp(-log_T(i-1))*(1-(ts(i+1)-ts(i))*sigma(i))
+                      = exp(-log_T(i-1)) - exp(-log_T(i))
+    with
+        log_T(i) = cumsum([0,(ts(1)-ts(0))*sigma(0),...,(ts(-1)-ts(-2))*sigma(-1))])
 
     Params:
         color: (T,N,...,C) color samples C for (N,...) rays at steps (T,).
@@ -66,8 +71,9 @@ def integrate_path(
         value=0.0,
     )
     log_transm = -sigma_delta.cumsum(0) + prev_log_transmittance  # (T+1,N,...,1)
-
     transm = log_transm.exp()
+
+    # T(i)*alpha(i)
     weights = transm[:-1] - transm[1:]  # (T,N,...,1)
 
     integrated_colors = (weights * color).cumsum(0)
