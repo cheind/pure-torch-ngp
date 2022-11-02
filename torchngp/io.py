@@ -73,6 +73,7 @@ def load_scene_from_json(
         if load_images:
             imgpath = path.parent / frame["file_path"]
             if imgpath.suffix == "":
+                # Original nerf does not specify image suffix
                 imgpath = imgpath.with_suffix(".png")
             if not imgpath.is_file():
                 print(f"Skipping {str(imgpath)}, image not found.")
@@ -101,7 +102,6 @@ def load_scene_from_json(
         flip[2, 2] = -1
 
         t = (t @ flip).to(dtype)
-        print(t[:3, :3] @ t[:3, :3].T)
         Rs.append(t[:3, :3])
         Ts.append(t[:3, 3])
 
