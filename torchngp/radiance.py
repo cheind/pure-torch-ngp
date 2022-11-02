@@ -70,11 +70,11 @@ def integrate_path(
         mode="constant",
         value=0.0,
     )
-    log_transm = -sigma_delta.cumsum(0) + prev_log_transmittance  # (T+1,N,...,1)
-    transm = log_transm.exp()
+    log_transm = -sigma_delta.cumsum(0)  # (T+1,N,...,1)
+    total_transm = (prev_log_transmittance + log_transm).exp()
 
     # T(i)*alpha(i)
-    weights = transm[:-1] - transm[1:]  # (T,N,...,1)
+    weights = total_transm[:-1] - total_transm[1:]  # (T,N,...,1)
 
     integrated_colors = (weights * color).cumsum(0)
 
