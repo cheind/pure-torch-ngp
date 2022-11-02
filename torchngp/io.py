@@ -27,6 +27,9 @@ def load_scene_from_json(
         camera: multi-view camera parameters
         aabb: (2,3) tensor containing min/max corner of world aabb
         images: (N,H,W,4) optional RGBA images normalized to [0..1] range
+
+    See:
+        https://github.com/NVlabs/instant-ngp/blob/54aba7cfbeaf6a60f29469a9938485bebeba24c3/docs/nerf_dataset_tips.md
     """
 
     path = Path(path)

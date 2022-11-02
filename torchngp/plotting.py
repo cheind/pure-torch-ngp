@@ -62,18 +62,15 @@ def _checkerboard(shape: tuple[int, ...], k: int = None) -> torch.Tensor:
     return x[: shape[0], : shape[1]]
 
 
-def plot_image(
-    img: torch.Tensor,
-    checkerboard_bg: bool = True,
-    scale: float = 1.0,
-    ax=None,
-):
-    H, W = img.shape[-2:]
+def make_image_grid(
+    imgs: torch.Tensor, checkerboard_bg: bool = True, scale: float = 1.0
+) -> torch.Tensor:
+    H, W = imgs.shape[-2:]
 
-    if img.shape[1] == 4:
-        img = img.detach().clone()
-        rgb = img[:, :3]
-        alpha = img[:, 3:4]
+    if imgs.shape[1] == 4:
+        imgs = imgs.detach().clone()
+        rgb = imgs[:, :3]
+        alpha = imgs[:, 3:4]
         if checkerboard_bg:
             bg = _checkerboard((H, W)).expand_as(rgb).to(rgb.device)
         else:
@@ -82,15 +79,25 @@ def plot_image(
         rgb[:] = rgb * alpha + (1 - alpha) * bg
 
     if scale != 1.0:
-        img = F.interpolate(
-            img,
+        imgs = F.interpolate(
+            imgs,
             scale_factor=scale,
             mode="bilinear",
             align_corners=False,
             antialias=False,
         )
 
-    grid = make_grid(img)
+    grid_img = make_grid(imgs)
+    return grid_img
+
+
+def plot_image(
+    img: torch.Tensor,
+    checkerboard_bg: bool = True,
+    scale: float = 1.0,
+    ax=None,
+):
+    grid = make_image_grid(img, checkerboard_bg=checkerboard_bg, scale=scale)
     if ax is None:
         _, ax = plt.subplots()
     ax.imshow(grid[:3].permute(1, 2, 0).detach().cpu().numpy())
