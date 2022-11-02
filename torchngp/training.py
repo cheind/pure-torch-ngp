@@ -130,7 +130,7 @@ def train(
                 # model does not have to learn randomness.
                 gt_rgb_mixed = rgb * alpha + noise * (1 - alpha)
 
-                pred_rgb, pred_alpha = rendering.render_volume_stratified(
+                pred_rgb, pred_alpha = rendering.render_radiance_field(
                     nerf,
                     nerf.aabb,
                     train_mvs[0],

@@ -6,7 +6,7 @@ from . import sampling
 from . import geometric
 
 
-def render_volume_stratified(
+def render_radiance_field(
     radiance_field: radiance.RadianceField,
     aabb: torch.Tensor,
     cam: cameras.MultiViewCamera,
@@ -76,7 +76,7 @@ def render_camera_views(
     color_parts = []
     alpha_parts = []
     for uv, _ in gen:
-        color, alpha = render_volume_stratified(
+        color, alpha = render_radiance_field(
             radiance_field, aabb, cam, uv, n_ray_t_steps=n_ray_step_samples
         )
         color_parts.append(color)
