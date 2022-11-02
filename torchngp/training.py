@@ -136,6 +136,7 @@ def train(
                     train_mvs[0],
                     uv,
                     n_ray_t_steps=n_ray_step_samples,
+                    boost_tfar=10.0,
                 )
                 pred_rgb_mixed = pred_rgb * pred_alpha + noise * (1 - pred_alpha)
 
@@ -149,7 +150,6 @@ def train(
                 sched.step(loss)
                 pbar_postfix["loss"] = loss.item()
                 pbar_postfix["lr"] = sched._last_lr
-                pbar.set_postfix(**pbar_postfix, refresh=False)
                 step += 1
                 if (t_now - t_start) > max_train_secs:
                     return
@@ -159,17 +159,23 @@ def train(
                     import matplotlib.pyplot as plt
 
                     with torch.no_grad():
-                        color, alpha = rendering.render_camera_views(
+                        pred_color, pred_alpha = rendering.render_camera_views(
                             test_mvs[0],
                             nerf,
                             nerf.aabb,
                             n_ray_step_samples=n_ray_step_samples,
                         )
-                        img = torch.cat((color, alpha), -1).permute(0, 3, 1, 2)
-                        plotting.plot_image(img, checkerboard_bg=False)
+                        pred_img = torch.cat((pred_color, pred_alpha), -1).permute(
+                            0, 3, 1, 2
+                        )
+                        val_loss = F.mse_loss(pred_img, test_mvs[1])
+                        pbar_postfix["val_loss"] = val_loss.item()
+                        plotting.plot_image(pred_img, checkerboard_bg=True)
                         plt.show()
 
                     t_last_dump = time.time()
+
+                pbar.set_postfix(**pbar_postfix, refresh=False)
 
 
 if __name__ == "__main__":
@@ -204,7 +210,7 @@ if __name__ == "__main__":
     )
     nerf = radiance.NeRF(aabb=aabb, **nerf_kwargs).to(dev)
 
-    train_time = 1 * 60
+    train_time = 3 * 60
     train(
         nerf=nerf,
         train_mvs=(camera[:-1], gt_images[:-1]),

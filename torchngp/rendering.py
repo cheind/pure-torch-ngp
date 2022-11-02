@@ -12,6 +12,7 @@ def render_volume_stratified(
     cam: cameras.MultiViewCamera,
     uv: torch.Tensor,
     n_ray_t_steps: int = 100,
+    boost_tfar: float = 1.0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
 
     batch_shape = uv.shape[:-1]
@@ -46,7 +47,7 @@ def render_volume_stratified(
 
     # Integrate colors along rays
     integ_color, integ_log_transm = radiance.integrate_path(
-        color, sigma, torch.cat((ray_ts, ray_tfar.unsqueeze(0)), 0)
+        color, sigma, torch.cat((ray_ts, boost_tfar * ray_tfar.unsqueeze(0)), 0)
     )
 
     final_alpha = 1.0 - integ_log_transm[-2].exp()
