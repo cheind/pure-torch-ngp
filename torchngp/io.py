@@ -49,15 +49,6 @@ def load_scene_from_json(
         .to(dtype)
     )
 
-    camera_common_kwargs = {
-        "f": data["fl_x"],
-        "fy": data["fl_y"],
-        "cx": data["cx"],
-        "cy": data["cy"],
-        "width": data["w"],
-        "height": data["h"],
-    }
-
     Rs = []
     Ts = []
     view_images = []
