@@ -45,16 +45,17 @@ def render_volume_stratified(
     color, sigma = radiance_field(xyz)
 
     # Integrate colors along rays
-    integ_color, integ_transm, sample_alpha = radiance.integrate_path(
+    integ_color, integ_log_transm = radiance.integrate_path(
         color, sigma, torch.cat((ray_ts, ray_tfar.unsqueeze(0)), 0)
     )
 
-    final_alpha = 1.0 - integ_transm[-1] * sample_alpha[-1]
+    final_alpha = 1.0 - integ_log_transm[-2].exp()
+    final_color = integ_color[-1]
 
     out_color = color.new_zeros(batch_shape + color.shape[-1:])
     out_alpha = sigma.new_zeros(batch_shape + (1,))
 
-    out_color[ray_hit] = integ_color[-1].to(out_color.dtype)
+    out_color[ray_hit] = final_color.to(out_color.dtype)
     out_alpha[ray_hit] = final_alpha.to(out_alpha.dtype)
 
     return out_color, out_alpha
@@ -75,7 +76,7 @@ def render_camera_views(
     alpha_parts = []
     for uv, _ in gen:
         color, alpha = render_volume_stratified(
-            radiance_field, aabb, cam, uv, n_ray_steps=n_ray_step_samples
+            radiance_field, aabb, cam, uv, n_ray_t_steps=n_ray_step_samples
         )
         color_parts.append(color)
         alpha_parts.append(alpha)

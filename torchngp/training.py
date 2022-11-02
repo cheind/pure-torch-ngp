@@ -135,7 +135,7 @@ def train(
                     nerf.aabb,
                     train_mvs[0],
                     uv,
-                    n_ray_steps=n_ray_step_samples,
+                    n_ray_t_steps=n_ray_step_samples,
                 )
                 pred_rgb_mixed = pred_rgb * pred_alpha + noise * (1 - pred_alpha)
 

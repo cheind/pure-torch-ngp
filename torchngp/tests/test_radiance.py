@@ -60,9 +60,7 @@ def test_radiance_integrate_path():
 
     ts_padded = torch.cat((ts, torch.tensor(1.0).view(1, 1, 1)), 0)
     color, density = rf(xyz)
-    out_colors, log_transmittance, alpha = radiance.integrate_path(
-        color, density, ts_padded
-    )
+    out_colors, log_transmittance = radiance.integrate_path(color, density, ts_padded)
     assert_close(out_colors[-1], torch.tensor([[0.2, 0.2, 0.2]]))
 
     # Test soft transit and move plane
@@ -73,7 +71,7 @@ def test_radiance_integrate_path():
         cmap="gray",
     )
     color, density = rf(xyz)
-    out_colors, log_transmittance, alpha = radiance.integrate_path(
+    out_colors, log_transmittance = radiance.integrate_path(
         color, density, ts_padded, 0
     )
 
