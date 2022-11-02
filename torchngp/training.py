@@ -225,8 +225,6 @@ if __name__ == "__main__":
     with torch.no_grad(), torch.cuda.amp.autocast():
         import numpy as np
 
-        import time
-
         t = time.time()
         vol_colors, vol_sigma = radiance.rasterize_field(
             nerf, nerf.aabb, (512, 512, 512), batch_size=2**18, device=dev
