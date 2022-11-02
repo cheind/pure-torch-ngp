@@ -20,17 +20,20 @@ def plot_camera(cam: MultiViewCamera, ax=None, **kwargs):
     size = cam.size.detach().cpu().numpy()
 
     for idx in range(N):
-        transform_kwargs = {"linewidth": 0.25, "name": str(idx), **kwargs}
-        camera_kwargs = {"linewidth": 0.25, **kwargs}
-        pt.plot_transform(A2B=E[idx], s=0.5, ax=ax, **transform_kwargs)
-        pc.plot_camera(
-            ax=ax,
-            cam2world=E[idx],
-            M=K,
-            sensor_size=size,
-            virtual_image_distance=1.0,
-            **camera_kwargs,
-        )
+        try:
+            transform_kwargs = {"linewidth": 0.25, "name": str(idx), **kwargs}
+            camera_kwargs = {"linewidth": 0.25, **kwargs}
+            pt.plot_transform(A2B=E[idx], s=0.5, ax=ax, **transform_kwargs)
+            pc.plot_camera(
+                ax=ax,
+                cam2world=E[idx],
+                M=K,
+                sensor_size=size,
+                virtual_image_distance=1.0,
+                **camera_kwargs,
+            )
+        except ValueError as e:
+            print("failed to display transform " + str(idx) + " " + str(e))
     return ax
 
 
