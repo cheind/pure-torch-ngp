@@ -1,12 +1,16 @@
 import json
+import logging
 from pathlib import Path
 from typing import Optional
+
 import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image
 
 from .cameras import MultiViewCamera
+
+_logger = logging.getLogger(__name__)
 
 
 def load_scene_from_json(
@@ -30,6 +34,8 @@ def load_scene_from_json(
 
     See:
         https://github.com/NVlabs/instant-ngp/blob/54aba7cfbeaf6a60f29469a9938485bebeba24c3/docs/nerf_dataset_tips.md
+        https://drive.google.com/drive/folders/1JDdLGDruGNXWnM1eqY1FNL9PlStjaKWi
+        https://github.com/bmild/nerf#generating-poses-for-your-own-scenes
     """
 
     path = Path(path)
@@ -37,17 +43,26 @@ def load_scene_from_json(
     with open(path, "r") as f:
         data = json.load(f)
 
-    aabb = (
-        torch.stack(
-            (
-                -torch.ones((3,)) * data["aabb_scale"] * 0.5,
-                torch.ones((3,)) * data["aabb_scale"] * 0.5,
-            ),
-            0,
-        )
-        .to(device)
-        .to(dtype)
-    )
+    scale = data.get("scale", 0.33)
+    aabb_scale = data.get("aabb_scale", 1.0)
+    offset = torch.tensor(data.get("offset", 0.5)).to(device).to(dtype)
+
+    if "aabb" not in data:
+        aabb = (
+            torch.stack(
+                (
+                    -torch.ones((3,)) * (aabb_scale / scale) * 0.5,
+                    torch.ones((3,)) * (aabb_scale / scale) * 0.5,
+                ),
+                0,
+            )
+            .to(device)
+            .to(dtype)
+        ) + offset
+    else:
+        aabb = torch.tensor(data["aabb"]).to(device).to(dtype)
+
+    print("AABB", aabb)
 
     Rs = []
     Ts = []
@@ -105,3 +120,4 @@ def load_scene_from_json(
 
 if __name__ == "__main__":
     camera, aabb, images = load_scene_from_json("data/suzanne/transforms.json")
+    camera, aabb, images = load_scene_from_json("data/fox/transforms.json")
