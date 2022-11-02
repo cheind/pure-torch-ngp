@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 from pathlib import Path
 from typing import Optional
 
@@ -71,6 +72,8 @@ def load_scene_from_json(
         # Handle image
         if load_images:
             imgpath = path.parent / frame["file_path"]
+            if imgpath.suffix == "":
+                imgpath = imgpath.with_suffix(".png")
             if not imgpath.is_file():
                 print(f"Skipping {str(imgpath)}, image not found.")
                 continue
@@ -81,7 +84,7 @@ def load_scene_from_json(
         # Handle extrinsics. Correct non-orthonormal rotations.
         # That's the case for some frames of the fox-dataset.
         t = torch.tensor(frame["transform_matrix"]).to(torch.float64)
-        if (torch.det(t[:3, :3]) - 1.0) > 1e-6:
+        if (torch.det(t[:3, :3]) - 1.0) > 1e-8:
             print(f"Correcting rotation matrix for {str(imgpath)}")
             res = torch.svd(t[:3, :3])
             u, s, v = res
@@ -98,13 +101,28 @@ def load_scene_from_json(
         flip[2, 2] = -1
 
         t = (t @ flip).to(dtype)
+        print(t[:3, :3] @ t[:3, :3].T)
         Rs.append(t[:3, :3])
         Ts.append(t[:3, 3])
 
+    H, W = view_images[0].shape[-2:]
+    if "fl_x" not in data or "fl_y" not in data:
+        assert "camera_angle_x" in data
+        fl_x = 0.5 * W / math.tan(0.5 * data["camera_angle_x"])
+        fl_y = fl_x  # square pixels
+    else:
+        fl_x, fl_y = data["fl_x"], data["fl_y"]
+    if "cx" not in data or "cy" not in data:
+        cx = (W + 1) * 0.5
+        cy = (H + 1) * 0.5
+    else:
+        cx = data["cx"]
+        cy = data["cy"]
+
     camera = MultiViewCamera(
-        focal_length=[data["fl_x"], data["fl_y"]],
-        principal_point=[data["cx"], data["cy"]],
-        size=[data["w"], data["h"]],
+        focal_length=[fl_x, fl_y],
+        principal_point=[cx, cy],
+        size=[W, H],
         tnear=0.0,
         tfar=10,
         R=Rs,
@@ -119,5 +137,7 @@ def load_scene_from_json(
 
 
 if __name__ == "__main__":
-    camera, aabb, images = load_scene_from_json("data/suzanne/transforms.json")
-    camera, aabb, images = load_scene_from_json("data/fox/transforms.json")
+    # camera, aabb, images = load_scene_from_json("data/suzanne/transforms.json")
+
+    # camera, aabb, images = load_scene_from_json("data/fox/transforms.json")
+    camera, aabb, images = load_scene_from_json("data/lego/transforms_train.json")
