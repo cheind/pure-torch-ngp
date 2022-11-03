@@ -103,6 +103,7 @@ def test_radiance_integrate_path_in_parts():
             prev_log_transmittance=prev_log_transm,
         )
         colors = colors + prev_color
+        log_transm = log_transm + prev_log_transm
         color_parts.append(colors)
         if i == 20:
             log_transm_parts.append(log_transm)
