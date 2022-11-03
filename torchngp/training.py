@@ -85,8 +85,6 @@ def train(
         opt, mode="min", factor=0.75, patience=40, min_lr=1e-6
     )
 
-    scaler = torch.cuda.amp.GradScaler()
-
     n_views = train_mvs[0].n_views
     n_worker = 4
     n_samples_per_cam = train_mvs[0].size[0].item()
@@ -109,6 +107,8 @@ def train(
     step = 0
     t_start = time.time()
     t_last_dump = time.time()
+    use_amp = True
+    scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
     while True:
         pbar = tqdm(train_dl, mininterval=0.1)
         for (uv, color) in pbar:
@@ -116,9 +116,8 @@ def train(
             # uv is (B,N,M,2) N=num cams, M=minibatch
             # uf_features is (B,N,M,C)
             t_now = time.time()
-            opt.zero_grad()
 
-            with torch.cuda.amp.autocast():
+            with torch.cuda.amp.autocast(enabled=use_amp):
                 uv = uv.permute(1, 0, 2, 3).reshape(N, B * M, 2)
                 color = color.permute(1, 0, 2, 3).reshape(N, B * M, C)
                 rgb, alpha = color[..., :3], color[..., 3:4]
@@ -130,46 +129,58 @@ def train(
                 # model does not have to learn randomness.
                 gt_rgb_mixed = rgb * alpha + noise * (1 - alpha)
 
-                pred_rgb, pred_alpha = rendering.render_volume_stratified(
+                pred_rgb, pred_alpha = rendering.render_radiance_field(
                     nerf,
                     nerf.aabb,
                     train_mvs[0],
                     uv,
-                    n_ray_steps=n_ray_step_samples,
+                    n_ray_t_steps=n_ray_step_samples,
+                    boost_tfar=10.0,
                 )
                 pred_rgb_mixed = pred_rgb * pred_alpha + noise * (1 - pred_alpha)
 
                 loss = F.mse_loss(pred_rgb_mixed, gt_rgb_mixed)
 
-                loss = scaler.scale(loss)
-                loss.backward()
-                scaler.step(opt)
-                scaler.update()
-                # opt.step()
-                sched.step(loss)
-                pbar_postfix["loss"] = loss.item()
-                pbar_postfix["lr"] = sched._last_lr
-                pbar.set_postfix(**pbar_postfix, refresh=False)
-                step += 1
-                if (t_now - t_start) > max_train_secs:
-                    return
+            scaled_loss = scaler.scale(loss)
+            opt.zero_grad(set_to_none=True)
+            scaled_loss.backward()
+            scaler.step(opt)
+            scaler.update()
+            # opt.step()
+            sched.step(loss)
+            pbar_postfix["loss"] = loss.item()
+            pbar_postfix["lr"] = sched._last_lr
+            step += 1
+            if (t_now - t_start) > max_train_secs:
+                return
 
-                if t_now - t_last_dump > 30:
-                    from . import plotting
-                    import matplotlib.pyplot as plt
+            if t_now - t_last_dump > 30:
+                from . import plotting
+                import matplotlib.pyplot as plt
 
-                    with torch.no_grad():
-                        color, alpha = rendering.render_camera_views(
-                            test_mvs[0],
-                            nerf,
-                            nerf.aabb,
-                            n_ray_step_samples=n_ray_step_samples,
-                        )
-                        img = torch.cat((color, alpha), -1).permute(0, 3, 1, 2)
-                        plotting.plot_image(img, checkerboard_bg=False)
-                        plt.show()
+                with torch.no_grad(), torch.cuda.amp.autocast(enabled=use_amp):
+                    nerf.eval()
+                    pred_color, pred_alpha = rendering.render_camera_views(
+                        test_mvs[0],
+                        nerf,
+                        nerf.aabb,
+                        n_ray_step_samples=n_ray_step_samples,
+                    )
+                    pred_img = torch.cat((pred_color, pred_alpha), -1).permute(
+                        0, 3, 1, 2
+                    )
+                    val_loss = F.mse_loss(pred_img, test_mvs[1])
+                    pbar_postfix["val_loss"] = val_loss.item()
+                    ax = plotting.plot_image(pred_img, checkerboard_bg=True)
+                    fig = ax.get_figure()
+                    fig.savefig(f"tmp/img_{int(t_now - t_start):03d}.png")
+                    plt.close(fig)
+                    nerf.train()
+                    # plt.show()
 
-                    t_last_dump = time.time()
+                t_last_dump = time.time()
+
+            pbar.set_postfix(**pbar_postfix, refresh=False)
 
 
 if __name__ == "__main__":
@@ -184,11 +195,11 @@ if __name__ == "__main__":
     camera, aabb, gt_images = load_scene_from_json(
         "data/suzanne/transforms.json", load_images=True
     )
-    plotting.plot_camera(camera)
-    plotting.plot_box(aabb)
-    plt.gca().set_aspect("equal")
-    plt.gca().autoscale()
-    plt.show()
+    # plotting.plot_camera(camera)
+    # plotting.plot_box(aabb)
+    # plt.gca().set_aspect("equal")
+    # plt.gca().autoscale()
+    # plt.show()
 
     # ds = MultiViewDataset(mvs)
 
@@ -197,19 +208,19 @@ if __name__ == "__main__":
         n_hidden=64,
         n_encodings=2**14,
         n_levels=16,
-        min_res=16,
+        min_res=32,
         max_res=512,  # can now specify much larger resolutions due to hybrid approach
         max_n_dense=256**3,
         is_hdr=False,
     )
     nerf = radiance.NeRF(aabb=aabb, **nerf_kwargs).to(dev)
 
-    train_time = 1 * 60
+    train_time = 10 * 60
     train(
         nerf=nerf,
         train_mvs=(camera[:-1], gt_images[:-1]),
         test_mvs=(camera[-1:], gt_images[-1:]),
-        batch_size=2**16,
+        batch_size=2**14,
         n_ray_step_samples=40,
         lr=1e-2,
         max_train_secs=train_time,
@@ -218,8 +229,6 @@ if __name__ == "__main__":
 
     with torch.no_grad(), torch.cuda.amp.autocast():
         import numpy as np
-
-        import time
 
         t = time.time()
         vol_colors, vol_sigma = radiance.rasterize_field(

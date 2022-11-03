@@ -1,6 +1,7 @@
 import torch
+from torch.testing import assert_close
 
-from torchngp import geometric, radiance, cameras, rendering, sampling
+from torchngp import cameras, rendering, sampling
 
 from .test_radiance import ColorGradientRadianceField
 
@@ -9,10 +10,10 @@ def test_render_volume_stratified():
     aabb = torch.Tensor([[0.0] * 3, [1.0] * 3])
     rf = ColorGradientRadianceField(
         aabb=aabb,
-        surface_pos=0.5,
+        surface_pos=0.2,
         surface_dim=2,
-        density_scale=1e1,  # hard surface boundary
-        cmap="hsv",
+        density_scale=1e1,  # soft density scale
+        cmap="jet",
     )
 
     cam = cameras.MultiViewCamera(
@@ -26,8 +27,8 @@ def test_render_volume_stratified():
     )
 
     torch.random.manual_seed(123)
-    color, alpha = rendering.render_volume_stratified(
-        rf, aabb, cam, cam.make_uv_grid(), n_ray_steps=200
+    color, alpha = rendering.render_radiance_field(
+        rf, aabb, cam, cam.make_uv_grid(), n_ray_t_steps=200
     )
     img = torch.cat((color, alpha), -1)
 
@@ -42,8 +43,8 @@ def test_render_volume_stratified():
 
     torch.random.manual_seed(123)
     for uv, _ in sampling.generate_sequential_uv_samples(cam):
-        color, alpha = rendering.render_volume_stratified(
-            rf, aabb, cam, uv, n_ray_steps=200
+        color, alpha = rendering.render_radiance_field(
+            rf, aabb, cam, uv, n_ray_t_steps=200
         )
         color_parts.append(color)
         alpha_parts.append(alpha)
@@ -52,7 +53,4 @@ def test_render_volume_stratified():
     color = torch.cat(color_parts, 1).view(1, H, W, 3)
     alpha = torch.cat(alpha_parts, 1).view(1, H, W, 1)
     img2 = torch.cat((color, alpha), -1)
-    print((img - img2).abs().max())
-    # plt.imshow(img.squeeze(0))
-    # plt.show()
-    # TODO: test this
+    assert_close(img, img2)

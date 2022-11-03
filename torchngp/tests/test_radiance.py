@@ -1,3 +1,4 @@
+from distutils.log import log
 import torch
 from torch.testing import assert_close
 import matplotlib as mpl
@@ -57,11 +58,10 @@ def test_radiance_integrate_path():
         cmap="gray",
     )
 
+    ts_padded = torch.cat((ts, torch.tensor(1.0).view(1, 1, 1)), 0)
     color, density = rf(xyz)
-    final_colors, transmittance, alpha = radiance.integrate_path(
-        color, density, ts, torch.tensor([[1.0]])
-    )
-    assert_close(final_colors, torch.tensor([[0.2, 0.2, 0.2]]))
+    out_colors, log_transmittance = radiance.integrate_path(color, density, ts_padded)
+    assert_close(out_colors[-1], torch.tensor([[0.2, 0.2, 0.2]]))
 
     # Test soft transit and move plane
     rf = ColorGradientRadianceField(
@@ -71,10 +71,53 @@ def test_radiance_integrate_path():
         cmap="gray",
     )
     color, density = rf(xyz)
-    final_colors, transmittance, alpha = radiance.integrate_path(
-        color, density, ts, torch.tensor([[1.0]])
+    out_colors, log_transmittance = radiance.integrate_path(
+        color, density, ts_padded, 0
     )
-    assert ((final_colors > 0.5) & (final_colors < 0.6)).all()
+
+    assert ((out_colors[-1] > 0.5) & (out_colors[-1] < 0.6)).all()
+
+
+def test_radiance_integrate_path_in_parts():
+
+    ts = torch.rand(30, 20, 1)
+    ts_padded = torch.cat((ts, torch.tensor(1.0).view(1, 1, 1).expand(1, 20, 1)), 0)
+    color = torch.randn(30, 20, 3)
+    density = torch.rand(30, 20, 1) * 1e-1
+
+    full_colors, full_log_transmittance = radiance.integrate_path(
+        color, density, ts_padded
+    )
+
+    # Compare with part based intrg
+    color_parts = []
+    log_transm_parts = []
+
+    prev_log_transm = 0.0
+    prev_color = 0.0
+    for i in [0, 10, 20]:
+        colors, log_transm = radiance.integrate_path(
+            color[i : i + 10],
+            density[i : i + 10],
+            ts_padded[i : i + 11],
+            prev_log_transmittance=prev_log_transm,
+        )
+        colors = colors + prev_color
+        log_transm = log_transm + prev_log_transm
+        color_parts.append(colors)
+        if i == 20:
+            log_transm_parts.append(log_transm)
+        else:
+            log_transm_parts.append(log_transm[:-1])
+        prev_color = colors[-1:].clone()
+        prev_log_transm = log_transm[-1:].clone()
+
+    part_colors = torch.cat(color_parts, 0)
+
+    part_log_transmittance = torch.cat(log_transm_parts, 0)
+
+    assert_close(full_log_transmittance, part_log_transmittance)
+    assert_close(full_colors, part_colors)
 
 
 def test_radiance_rasterize_field():

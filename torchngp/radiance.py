@@ -1,7 +1,8 @@
-from typing import Callable
+from typing import Callable, Union
 
 import torch
 import torch.nn
+import torch.nn.functional as F
 
 from . import geometric
 from . import encoding
@@ -15,47 +16,69 @@ RadianceField = Callable[[torch.Tensor], tuple[torch.Tensor, torch.Tensor]]
 
 
 def integrate_path(
-    color: torch.Tensor, sigma: torch.Tensor, ts: torch.Tensor, tfar: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    color: torch.Tensor,
+    sigma: torch.Tensor,
+    ts: torch.Tensor,
+    prev_log_transmittance: Union[torch.Tensor, float] = 0.0,
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Integrates the color integral for multiple rays.
 
-    This implementation is a batched version of equations (1,3) in [1].
+    This implementation is a batched version of equations (1,3) in [1]. In
+    addition this method allows the specification of an initial log-transmittance,
+    which allows evaluating the integral in parts. This is particularly useful
+    for incremental computations, such as determining early ray terminations.
+
+        T(i)*alpha(i) = exp(-log_T(i-1))*(1-(ts(i+1)-ts(i))*sigma(i))
+                      = exp(-log_T(i-1)) - exp(-log_T(i))
+    with
+        log_T(i) = cumsum([0,(ts(1)-ts(0))*sigma(0),...,(ts(-1)-ts(-2))*sigma(-1))])
 
     Params:
         color: (T,N,...,C) color samples C for (N,...) rays at steps (T,).
         sigma: (T,N,...,1) volume density for each ray (N,...) and step (T,).
-        ts: (T,N,...,1) parametric ray step parameters
-        tfar: (N,...,1) ray end values
+        ts: (T+1,N,...,1) parametric ray time step values. We need one more than
+            actual samples to be computed. Usually this is set to ray tfar.
+        prev_log_transmittance: (1,N,...,1) or broadcastable initial log
+            transmittance values per ray. Useful when combining colors from
+            several path parts.
 
     Returns:
-        color: (N,...,C) final colors for each ray
-        sample_transmittance: (T,N,...,1) accumulated transmittance
-            for each ray and step
-        sample_alpha: (T,N,...,1) alpha transparency values for ray and step
+        color: (T,N,...,C) accumulated colors per sample step
+        log_transmittance: (T+1,N,...,1) accumulated log-transmittance
+            per sample step. At index t we have the log-transmittance
+            accumulated up to the t-th time step position.
 
     References:
         [1] NeRF: Representing Scenes as
         Neural Radiance Fields for View Synthesis
         https://arxiv.org/pdf/2003.08934.pdf
     """
+    eps = torch.finfo(ts.dtype).eps
 
     # delta[i] is defined as the segment lengths between ts[i+1] and ts[i]
-    delta = ts[1:] - ts[:-1]  # (T-1,N,...,1)
-    delta = torch.cat((delta, tfar.unsqueeze(0)), 0)  # (T,N,...,1)
+    delta = ts[1:] - ts[:-1]  # (T+1,N,...,1) -> (T,N,...,1)
 
-    # Alpha values (T,N,...,1)
-    sigma_mul_delta = sigma * delta
-    alpha = 1.0 - (-sigma_mul_delta).exp()
+    # Eps is necessary because in testing sigma is often inf and if delta
+    # is zero then 0.0*float('inf')=nan
+    sigma_delta = sigma * (delta + eps)
 
-    # Accumulated transmittance - this is an exclusive cumsum
-    # (T,N,...,1)
-    acc_transm = sigma_mul_delta.cumsum(0).roll(1, 0)
-    acc_transm[0] = 0
-    acc_transm = (-acc_transm).exp()
+    # We construct a full-cumsum which has the following form
+    # full_cumsum([1,2,3]) = [0,1,3,6]
+    sigma_delta = F.pad(
+        sigma_delta,
+        (0,) * 2 * (sigma.dim() - 1) + (1, 0),
+        mode="constant",
+        value=0.0,
+    )
+    log_transm = -sigma_delta.cumsum(0)  # (T+1,N,...,1)
+    total_transm = (prev_log_transmittance + log_transm).exp()
 
-    final_colors = (acc_transm * alpha * color).sum(0)
+    # T(i)*alpha(i)
+    weights = total_transm[:-1] - total_transm[1:]  # (T,N,...,1)
 
-    return final_colors, acc_transm, alpha
+    integrated_colors = (weights * color).cumsum(0)
+
+    return integrated_colors, log_transm
 
 
 def rasterize_field(

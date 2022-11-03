@@ -138,6 +138,8 @@ def after_render_complete(scene):
         "p1": 0.0,
         "p2": 0.0,
         "aabb_scale": 4.0,
+        "offset": 0.0,
+        "scale": 1.0,
     }
 
     outdir = None
