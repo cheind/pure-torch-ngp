@@ -1,9 +1,17 @@
+import math
 import torch
 
 from . import radiance
 from . import cameras
 from . import sampling
 from . import geometric
+
+
+def _strided_windows(n: int, batch: int, stride: int = 1):
+    for i in range(0, n, stride):
+        j = min(i + batch, n)
+        if (j - i) > 2:  # last one not needed
+            yield i, j
 
 
 def render_radiance_field(
@@ -58,6 +66,73 @@ def render_radiance_field(
 
     out_color[ray_hit] = final_color.to(out_color.dtype)
     out_alpha[ray_hit] = final_alpha.to(out_alpha.dtype)
+
+    return out_color, out_alpha
+
+
+def render_radiance_field_time_batches(
+    radiance_field: radiance.RadianceField,
+    aabb: torch.Tensor,
+    cam: cameras.MultiViewCamera,
+    uv: torch.Tensor,
+    n_ray_t_steps: int = 100,
+    boost_tfar: float = 1.0,
+) -> tuple[torch.Tensor, torch.Tensor]:
+
+    batch_shape = uv.shape[:-1]
+
+    # Output (N,...,C), (N,...,1)
+    integ_color = uv.new_zeros(batch_shape + (3,))
+    integ_log_transm = uv.new_zeros(batch_shape + (1,))
+
+    # Get world rays (N,...,3)
+    ray_origin, ray_dir, ray_tnear, ray_tfar = geometric.world_ray_from_pixel(
+        cam, uv, normalize_dirs=False
+    )
+
+    # Intersect rays with AABB
+    ray_tnear, ray_tfar = geometric.intersect_ray_aabb(
+        ray_origin, ray_dir, ray_tnear, ray_tfar, aabb
+    )
+
+    # Sample ray steps (T,N,...,1) and padded (T+1,N,...,1)
+    ray_ts = sampling.sample_ray_step_stratified(
+        ray_tnear, ray_tfar, n_samples=n_ray_t_steps
+    )
+    ray_ts = torch.cat((ray_ts, boost_tfar * ray_tfar.unsqueeze(0)), 0)
+
+    # Ray-active mask (N,...)
+    ray_mask = (ray_tnear < ray_tfar).squeeze(-1)
+    log_transm_th = math.log(1e-5)
+
+    for ti, tj in _strided_windows(ray_ts.shape[0], 20, 20 - 1):
+
+        o = ray_origin[ray_mask]
+        d = ray_dir[ray_mask]
+        ts = ray_ts[ti:tj, ray_mask]
+
+        # Evaluate world points (T,V,3)
+        xyz = geometric.evaluate_ray(o, d, ts[:-1])
+
+        # Predict radiance properties
+        sample_color, sample_sigma = radiance_field(xyz)
+
+        # Integrate colors along rays
+        part_color, part_log_transm = radiance.integrate_path(
+            sample_color,
+            sample_sigma,
+            ts,
+            prev_log_transmittance=integ_log_transm[ray_mask],
+        )
+
+        integ_color[ray_mask] += part_color[-1].to(integ_color.dtype)
+        integ_log_transm[ray_mask] += part_log_transm[-2].to(integ_log_transm.dtype)
+
+        # Update ray active mask
+        ray_mask = ray_mask & (integ_log_transm > log_transm_th).detach().squeeze(-1)
+
+    out_color = integ_color
+    out_alpha = 1 - integ_log_transm.exp()
 
     return out_color, out_alpha
 

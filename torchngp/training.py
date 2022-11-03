@@ -141,9 +141,9 @@ def train(
 
                 loss = F.mse_loss(pred_rgb_mixed, gt_rgb_mixed)
 
-            loss = scaler.scale(loss)
+            scaled_loss = scaler.scale(loss)
             opt.zero_grad(set_to_none=True)
-            loss.backward()
+            scaled_loss.backward()
             scaler.step(opt)
             scaler.update()
             # opt.step()
@@ -159,6 +159,7 @@ def train(
                 import matplotlib.pyplot as plt
 
                 with torch.no_grad(), torch.cuda.amp.autocast(enabled=use_amp):
+                    nerf.eval()
                     pred_color, pred_alpha = rendering.render_camera_views(
                         test_mvs[0],
                         nerf,
@@ -174,6 +175,7 @@ def train(
                     fig = ax.get_figure()
                     fig.savefig(f"tmp/img_{int(t_now - t_start):03d}.png")
                     plt.close(fig)
+                    nerf.train()
                     # plt.show()
 
                 t_last_dump = time.time()
@@ -191,22 +193,22 @@ if __name__ == "__main__":
 
     dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     camera, aabb, gt_images = load_scene_from_json(
-        "data/lego/transforms_train.json", load_images=True
+        "data/suzanne/transforms.json", load_images=True
     )
-    plotting.plot_camera(camera)
-    plotting.plot_box(aabb)
-    plt.gca().set_aspect("equal")
-    plt.gca().autoscale()
-    plt.show()
+    # plotting.plot_camera(camera)
+    # plotting.plot_box(aabb)
+    # plt.gca().set_aspect("equal")
+    # plt.gca().autoscale()
+    # plt.show()
 
     # ds = MultiViewDataset(mvs)
 
     nerf_kwargs = dict(
         n_colors=3,
         n_hidden=64,
-        n_encodings=2**16,
+        n_encodings=2**14,
         n_levels=16,
-        min_res=16,
+        min_res=32,
         max_res=512,  # can now specify much larger resolutions due to hybrid approach
         max_n_dense=256**3,
         is_hdr=False,
@@ -218,7 +220,7 @@ if __name__ == "__main__":
         nerf=nerf,
         train_mvs=(camera[:-1], gt_images[:-1]),
         test_mvs=(camera[-1:], gt_images[-1:]),
-        batch_size=2**16,
+        batch_size=2**14,
         n_ray_step_samples=40,
         lr=1e-2,
         max_train_secs=train_time,
