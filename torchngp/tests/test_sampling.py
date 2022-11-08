@@ -92,12 +92,13 @@ def test_sample_ray_step_informed():
 def test_sample_ray_step_informed_errors(fname):
     from pathlib import Path
 
-    d = torch.load(str(Path("data/testdata/sample_informed") / fname))
-
-    print(list(d.keys()))
+    torch.use_deterministic_algorithms(True)
+    d = torch.load(
+        str(Path("data/testdata/sample_informed") / fname), map_location="cpu"
+    )
     ts = sampling.sample_ray_step_informed(**d)
-    print(ts.shape)
-    print((ts[1:] - ts[:-1]).min())
+    assert not ((ts[1:] - ts[:-1]) < 0.0).any()
+    assert ((ts >= d["tnear"]) & (ts <= d["tfar"])).all()
 
 
 def test_generate_sequential_uv_samples():
