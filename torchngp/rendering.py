@@ -205,5 +205,4 @@ def render_camera_views(
     W, H = cam.size
     color = torch.cat(color_parts, 1).view(N, H, W, C)
     alpha = torch.cat(alpha_parts, 1).view(N, H, W, 1)
-    print(color.min(), color.max(), alpha.min(), alpha.max())
     return color, alpha
