@@ -87,7 +87,7 @@ def integrate_path_density(
     delta = ts[1:] - ts[:-1]  # (T+1,N,...,1) -> (T,N,...,1)
 
     if (delta < 0).any():
-        print("delta violation", delta[0].min(), delta[-1].min())
+        print("delta violation", delta.min())
         delta = delta.abs()
 
     # Eps is necessary because in testing sigma is often inf and if delta
