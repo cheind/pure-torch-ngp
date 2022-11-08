@@ -1,4 +1,6 @@
+import pytest
 import torch
+import pickle
 from torch.testing import assert_close
 
 from torchngp import sampling, cameras, linalg
@@ -81,6 +83,21 @@ def test_sample_ray_step_informed():
     ll = (weights + 1e-5).log().sum()
     ll_new = (weights_new + 1e-5).log().sum()
     assert ll / ll_new > 2.0
+
+
+@pytest.mark.parametrize(
+    "fname",
+    ["resample_input_20.pkl", "resample_input_508.pkl", "resample_input_636.pkl"],
+)
+def test_sample_ray_step_informed_errors(fname):
+    from pathlib import Path
+
+    d = torch.load(str(Path("data/testdata/sample_informed") / fname))
+
+    print(list(d.keys()))
+    ts = sampling.sample_ray_step_informed(**d)
+    print(ts.shape)
+    print((ts[1:] - ts[:-1]).min())
 
 
 def test_generate_sequential_uv_samples():
