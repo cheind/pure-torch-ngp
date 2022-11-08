@@ -21,6 +21,91 @@ class RadianceField(Protocol):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         ...
 
+    def encode(self, xyz: torch.Tensor) -> torch.Tensor:
+        """Return features from positions.
+
+        Params:
+            xyz: (N,...,3) positions in world space
+
+        Returns:
+            f: (N,...,16) feature values for each sample point
+        """
+        ...
+
+    def decode_density(self, f: torch.Tensor) -> torch.Tensor:
+        """Return density estimates from encoded features.
+
+        Params:
+            f: (N,...,16) feature values for each sample point
+
+        Returns:
+            d: (N,...,1) color values in ranges [0..1]
+        """
+        ...
+
+    def decode_color(
+        self, f: torch.Tensor, cond: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        """Return color estimates from encoded features
+
+        Params:
+            f: (N,..., 16) feature values for each sample point
+            cond: (N,...,n_color_cond) conditioning values for each
+                sample point.
+
+        Returns:
+            colors: (N,...,n_colors) color values in range [0,+inf] (when hdr)
+                [0,1] otherwise.
+        """
+        ...
+
+
+def integrate_path_density(
+    sigma: torch.Tensor,
+    ts: torch.Tensor,
+) -> torch.Tensor:
+    """Computes the log-transmittance along ray sample steps.
+
+    Params:
+        sigma: (T,N,...,1) volume density for each ray (N,...) and step (T,).
+        ts: (T+1,N,...,1) parametric ray time step values. We need one more than
+            actual samples to be computed. Usually this is set to ray tfar.
+
+    Returns:
+        log_transmittance: (T+1,N,...,1) accumulated log-transmittance
+            per sample step. At index t we have the log-transmittance
+            accumulated up to the t-th time step position.
+
+    References:
+        [1] NeRF: Representing Scenes as
+        Neural Radiance Fields for View Synthesis
+        https://arxiv.org/pdf/2003.08934.pdf
+    """
+    eps = torch.finfo(ts.dtype).eps
+
+    # delta[i] is defined as the segment lengths between ts[i+1] and ts[i]
+    delta = ts[1:] - ts[:-1]  # (T+1,N,...,1) -> (T,N,...,1)
+
+    if (delta < 0).any():
+        print("delta violation", delta[0].min(), delta[-1].min())
+        delta = delta.abs()
+
+    # Eps is necessary because in testing sigma is often inf and if delta
+    # is zero then 0.0*float('inf')=nan
+    sigma_delta = sigma * (delta + eps)
+
+    # We construct a full-cumsum which has the following form
+    # full_cumsum([1,2,3]) = [0,1,3,6]
+    sigma_delta = F.pad(
+        sigma_delta,
+        (0,) * 2 * (sigma.dim() - 1) + (1, 0),
+        mode="constant",
+        value=0.0,
+    )
+    log_transm = -sigma_delta.cumsum(0)  # (T+1,N,...,1)
+
+    return log_transm
+
 
 def integrate_path(
     color: torch.Tensor,
@@ -60,24 +145,7 @@ def integrate_path(
         Neural Radiance Fields for View Synthesis
         https://arxiv.org/pdf/2003.08934.pdf
     """
-    eps = torch.finfo(ts.dtype).eps
-
-    # delta[i] is defined as the segment lengths between ts[i+1] and ts[i]
-    delta = ts[1:] - ts[:-1]  # (T+1,N,...,1) -> (T,N,...,1)
-
-    # Eps is necessary because in testing sigma is often inf and if delta
-    # is zero then 0.0*float('inf')=nan
-    sigma_delta = sigma * (delta + eps)
-
-    # We construct a full-cumsum which has the following form
-    # full_cumsum([1,2,3]) = [0,1,3,6]
-    sigma_delta = F.pad(
-        sigma_delta,
-        (0,) * 2 * (sigma.dim() - 1) + (1, 0),
-        mode="constant",
-        value=0.0,
-    )
-    log_transm = -sigma_delta.cumsum(0)  # (T+1,N,...,1)
+    log_transm = integrate_path_density(sigma=sigma, ts=ts)  # (T+1,N,...,1)
     total_transm = (prev_log_transmittance + log_transm).exp()
 
     # T(i)*alpha(i)
@@ -159,6 +227,7 @@ class NeRF(torch.nn.Module, RadianceField):
         self.aabb: torch.Tensor
         self.is_hdr = is_hdr
         self.n_color_cond = n_color_cond
+        self.n_colors = n_colors
         self.pos_encoder = encoding.MultiLevelHybridHashEncoding(
             n_encodings=n_encodings,
             n_input_dims=3,
@@ -190,8 +259,74 @@ class NeRF(torch.nn.Module, RadianceField):
             torch.nn.Linear(n_hidden, n_colors),
         )
 
+        print(sum(param.numel() for param in self.parameters()))
+
+    def encode(self, xyz: torch.Tensor) -> torch.Tensor:
+        """Return features from positions.
+
+        Params:
+            xyz: (N,...,3) positions in world space
+
+        Returns:
+            f: (N,...,16) feature values for each sample point
+        """
+        batch_shape = xyz.shape[:-1]
+
+        # Compute normalized box coords
+        xn = geometric.convert_world_to_box_normalized(xyz, self.aabb)
+
+        # Compute encoder features and pass them trough density mlp.
+        xn_flat = xn.view(-1, 3)
+        h = self.pos_encoder(xn_flat)
+        d = self.density_mlp(h)
+
+        return d.view(batch_shape + (16,))
+
+    def decode_density(self, f: torch.Tensor) -> torch.Tensor:
+        """Return density estimates from encoded features.
+
+        Params:
+            f: (N,...,16) feature values for each sample point
+
+        Returns:
+            d: (N,...,1) color values in ranges [0..1]
+        """
+
+        # We consider the first feature dimension to be the
+        # log-density estimate
+        return f[..., 0:1].exp()
+
+    def decode_color(
+        self, f: torch.Tensor, cond: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        """Return color estimates from encoded features
+
+        Params:
+            f: (N,..., 16) feature values for each sample point
+            cond: (N,...,n_color_cond) conditioning values for each
+                sample point.
+
+        Returns:
+            colors: (N,...,n_colors) color values in range [0,+inf] (when hdr)
+                [0,1] otherwise.
+
+        """
+        batch_shape = f.shape[:-1]
+
+        # Concat with condition
+        if cond is not None:
+            f = torch.cat((f, cond), -1)
+
+        # Raw color prediction
+        c = self.color_mlp(f).view(batch_shape + (self.n_colors,))
+
+        # Reparametrize
+        color = c.exp() if self.is_hdr else torch.sigmoid(c)
+
+        return color
+
     def forward(self, x, color_cond: Optional[torch.Tensor] = None):
-        """Predict density and colors for sample positions.
+        """Predict density and color values for sample positions.
 
         Params:
             x: (N,...,3) sampling positions in world space
@@ -199,33 +334,11 @@ class NeRF(torch.nn.Module, RadianceField):
                 condititioning values
 
         Returns:
-            colors: (N,...,C) predicted color values [0,+inf] (when hdr)
+            color: (N,...,n_colors) predicted color values [0,+inf] (when hdr)
                 [0,1] otherwise
             sigma: (N,...,1) prediced density values [0,+inf]
         """
-        batch_shape = x.shape[:-1]
-
-        # We query the hash using normalized box coordinates
-        xn = geometric.convert_world_to_box_normalized(x, self.aabb)
-        # Current encoding implementation does not support more
-        # than one batch dimension
-        xn_flat = xn.view(-1, 3)
-        h = self.pos_encoder(xn_flat)
-
-        # Use the spatial features to estimate density
-        d = self.density_mlp(h)
-
-        # Use spatial features + aux. dims to estimate color
-        if color_cond is not None:
-            d = torch.cat((d, color_cond.view(-1, self.n_color_cond)), -1)
-        c = self.color_mlp(d)
-
-        # Transform from linear range to output range
-        color = c.exp() if self.is_hdr else torch.sigmoid(c)
-        sigma = d[:, 0:1].exp()
-
-        # Reshape to match input batch dims
-        color = color.view(batch_shape + (-1,))
-        sigma = sigma.view(batch_shape + (1,))
-
+        f = self.encode(x)
+        sigma = self.decode_density(f)
+        color = self.decode_color(f, cond=color_cond)
         return color, sigma
