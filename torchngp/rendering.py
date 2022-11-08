@@ -5,6 +5,7 @@ from . import radiance
 from . import cameras
 from . import sampling
 from . import geometric
+from .harmonics import rsh_cart_3
 
 
 def _strided_windows(n: int, batch: int, stride: int = 1):
@@ -24,10 +25,11 @@ def render_radiance_field(
 ) -> tuple[torch.Tensor, torch.Tensor]:
 
     batch_shape = uv.shape[:-1]
+    with_harmonics = radiance_field.n_color_cond > 0
 
     # Get world rays corresponding to pixels (N,...,3)
     ray_origin, ray_dir, ray_tnear, ray_tfar = geometric.world_ray_from_pixel(
-        cam, uv, normalize_dirs=False
+        cam, uv, normalize_dirs=with_harmonics
     )
 
     # Intersect rays with AABB
@@ -47,11 +49,20 @@ def render_radiance_field(
         ray_tnear, ray_tfar, n_samples=n_ray_t_steps
     )
 
+    ray_ynm = None
+    if with_harmonics:
+        ray_ynm = (
+            rsh_cart_3(ray_dir)
+            .unsqueeze(0)
+            .expand(ray_ts.shape[0], -1, -1)
+            .contiguous()
+        )
+
     # Evaluate world points (T,V,3)
     xyz = geometric.evaluate_ray(ray_origin, ray_dir, ray_ts)
 
     # Predict radiance properties
-    color, sigma = radiance_field(xyz)
+    color, sigma = radiance_field(xyz, color_cond=ray_ynm)
 
     # Integrate colors along rays
     integ_color, integ_log_transm = radiance.integrate_path(

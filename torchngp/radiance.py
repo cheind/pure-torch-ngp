@@ -1,4 +1,4 @@
-from typing import Callable, Union
+from typing import Callable, Union, Optional, Protocol
 
 import torch
 import torch.nn
@@ -7,12 +7,19 @@ import torch.nn.functional as F
 from . import geometric
 from . import encoding
 
-"""Protocol of a spatial radiance field.
 
-A spatial radiance field takes positions and returns color and densities values
-for each location.
-"""
-RadianceField = Callable[[torch.Tensor], tuple[torch.Tensor, torch.Tensor]]
+class RadianceField(Protocol):
+    """Protocol of a spatial radiance field.
+
+    A spatial radiance field takes positions plus optional conditioning values
+    and returns color and densities values for each location."""
+
+    n_color_cond: int
+
+    def __call__(
+        self, xyz: torch.Tensor, color_cond: Optional[torch.Tensor] = None
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        ...
 
 
 def integrate_path(
@@ -126,7 +133,7 @@ def rasterize_field(
     return color, sigma
 
 
-class NeRF(torch.nn.Module):
+class NeRF(torch.nn.Module, RadianceField):
     """Neural radiance field module.
 
     Currently supports only spatial features and not view dependent ones.
@@ -139,6 +146,7 @@ class NeRF(torch.nn.Module):
         n_hidden: int = 64,
         n_encodings: int = 2**12,
         n_levels: int = 16,
+        n_color_cond: int = 0,
         min_res: int = 32,
         max_res: int = 256,
         max_n_dense: int = 256**3,
@@ -150,6 +158,7 @@ class NeRF(torch.nn.Module):
         self.register_buffer("aabb", aabb)
         self.aabb: torch.Tensor
         self.is_hdr = is_hdr
+        self.n_color_cond = n_color_cond
         self.pos_encoder = encoding.MultiLevelHybridHashEncoding(
             n_encodings=n_encodings,
             n_input_dims=3,
@@ -172,7 +181,7 @@ class NeRF(torch.nn.Module):
 
         # 2-layer hidden color mlp
         self.color_mlp = torch.nn.Sequential(
-            torch.nn.Linear(16, n_hidden),  # TODO: add aux-dims
+            torch.nn.Linear(16 + n_color_cond, n_hidden),  # TODO: add aux-dims
             torch.nn.ReLU(),
             torch.nn.Linear(n_hidden, n_hidden),
             torch.nn.ReLU(),
@@ -181,11 +190,13 @@ class NeRF(torch.nn.Module):
             torch.nn.Linear(n_hidden, n_colors),
         )
 
-    def forward(self, x):
+    def forward(self, x, color_cond: Optional[torch.Tensor] = None):
         """Predict density and colors for sample positions.
 
         Params:
             x: (N,...,3) sampling positions in world space
+            color_cond: (N,...,n_cond_color_dims) optional color
+                condititioning values
 
         Returns:
             colors: (N,...,C) predicted color values [0,+inf] (when hdr)
@@ -205,7 +216,9 @@ class NeRF(torch.nn.Module):
         d = self.density_mlp(h)
 
         # Use spatial features + aux. dims to estimate color
-        c = self.color_mlp(d)  # TODO: concat aux. dims
+        if color_cond is not None:
+            d = torch.cat((d, color_cond.view(-1, self.n_color_cond)), -1)
+        c = self.color_mlp(d)
 
         # Transform from linear range to output range
         color = c.exp() if self.is_hdr else torch.sigmoid(c)

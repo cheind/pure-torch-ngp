@@ -1,5 +1,6 @@
 import time
 from itertools import islice
+from PIL import Image
 
 import torch
 import torch.nn
@@ -154,7 +155,7 @@ def train(
             if (t_now - t_start) > max_train_secs:
                 return
 
-            if t_now - t_last_dump > 30:
+            if t_now - t_last_dump > 60:
                 from . import plotting
                 import matplotlib.pyplot as plt
 
@@ -168,6 +169,21 @@ def train(
                     )
                     pred_img = torch.cat((pred_color, pred_alpha), -1).permute(
                         0, 3, 1, 2
+                    )
+                    grid_img = (
+                        (
+                            plotting.make_image_grid(
+                                pred_img, checkerboard_bg=False, scale=1.0
+                            )
+                            * 255
+                        )
+                        .to(torch.uint8)
+                        .permute(1, 2, 0)
+                        .cpu()
+                        .numpy()
+                    )
+                    Image.fromarray(grid_img, mode="RGBA").save(
+                        f"tmp/img_raw_{int(t_now - t_start):03d}.png"
                     )
                     val_loss = F.mse_loss(pred_img, test_mvs[1])
                     pbar_postfix["val_loss"] = val_loss.item()
@@ -192,9 +208,16 @@ if __name__ == "__main__":
     torch.multiprocessing.set_start_method("spawn")
 
     dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    camera, aabb, gt_images = load_scene_from_json(
-        "data/suzanne/transforms.json", load_images=True
+    camera_train, aabb, gt_images_train = load_scene_from_json(
+        "data/lego/transforms_train.json", load_images=True
     )
+    camera_val, _, gt_images_val = load_scene_from_json(
+        "data/lego/transforms_val.json", load_images=True
+    )
+
+    train_mvs = (camera_train, gt_images_train)
+    val_mvs = (camera_val[:3], gt_images_val[:3])
+
     # plotting.plot_camera(camera)
     # plotting.plot_box(aabb)
     # plt.gca().set_aspect("equal")
@@ -206,10 +229,11 @@ if __name__ == "__main__":
     nerf_kwargs = dict(
         n_colors=3,
         n_hidden=64,
-        n_encodings=2**14,
+        n_encodings=2**16,
         n_levels=16,
+        n_color_cond=16,
         min_res=32,
-        max_res=512,  # can now specify much larger resolutions due to hybrid approach
+        max_res=1024,  # can now specify much larger resolutions due to hybrid approach
         max_n_dense=256**3,
         is_hdr=False,
     )
@@ -218,30 +242,30 @@ if __name__ == "__main__":
     train_time = 10 * 60
     train(
         nerf=nerf,
-        train_mvs=(camera[:-1], gt_images[:-1]),
-        test_mvs=(camera[-1:], gt_images[-1:]),
+        train_mvs=train_mvs,
+        test_mvs=val_mvs,
         batch_size=2**14,
-        n_ray_step_samples=40,
+        n_ray_step_samples=80,
         lr=1e-2,
         max_train_secs=train_time,
         dev=dev,
     )
 
-    with torch.no_grad(), torch.cuda.amp.autocast():
-        import numpy as np
+    # with torch.no_grad(), torch.cuda.amp.autocast():
+    #     import numpy as np
 
-        t = time.time()
-        vol_colors, vol_sigma = radiance.rasterize_field(
-            nerf, nerf.aabb, (512, 512, 512), batch_size=2**18, device=dev
-        )
-        vol_rgbd = torch.cat((vol_colors, vol_sigma), -1).cpu()
-        print(time.time() - t)
-        np.savez(
-            "tmp/volume.npz",
-            rgb=vol_rgbd[..., :3],
-            d=vol_rgbd[..., 3],
-            aabb=nerf.aabb.cpu(),
-        )
+    #     t = time.time()
+    #     vol_colors, vol_sigma = radiance.rasterize_field(
+    #         nerf, nerf.aabb, (512, 512, 512), batch_size=2**18, device=dev
+    #     )
+    #     vol_rgbd = torch.cat((vol_colors, vol_sigma), -1).cpu()
+    #     print(time.time() - t)
+    #     np.savez(
+    #         "tmp/volume.npz",
+    #         rgb=vol_rgbd[..., :3],
+    #         d=vol_rgbd[..., 3],
+    #         aabb=nerf.aabb.cpu(),
+    #     )
 
     # # ax = plotting.plot_camera(mvs.cameras)
     # # ax = plotting.plot_box(mvs.aabb)

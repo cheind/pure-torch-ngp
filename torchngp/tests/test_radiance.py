@@ -1,4 +1,4 @@
-from distutils.log import log
+from typing import Optional
 import torch
 from torch.testing import assert_close
 import matplotlib as mpl
@@ -24,8 +24,12 @@ class ColorGradientRadianceField(radiance.RadianceField):
         )
         self.surface_dim = surface_dim
         self.density_scale = density_scale
+        self.n_color_cond = 0  # unsupported
 
-    def __call__(self, xyz: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def __call__(
+        self, xyz: torch.Tensor, color_cond: Optional[torch.Tensor] = None
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        del color_cond
         dtype = xyz.dtype
         nxyz = geometric.convert_world_to_box_normalized(xyz, self.aabb)
         nxyz = (nxyz + 1.0) * 0.5
