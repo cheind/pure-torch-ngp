@@ -190,17 +190,7 @@ def sample_ray_step_informed(
         ts_informed: (n_samples,N,...,1) samples following the
             weight distribution
     """
-
-    import pickle
-    import random
-
-    rdata = {
-        "ts": ts.clone(),
-        "tnear": tnear.clone(),
-        "tfar": tfar.clone(),
-        "weights": weights.clone(),
-        "n_samples": n_samples,
-    }
+    T = ts.shape[0]
 
     # For computational reasons we shuffle the T dimension to last
     ts = ts.squeeze(-1).movedim(0, -1)  # (N,...,T)
@@ -210,19 +200,7 @@ def sample_ray_step_informed(
     pmf = weights / weights.sum(-1, keepdim=True)  # (N,...,T)
     # Create CDF for inverse uniform sampling
     cdf = pmf.cumsum(dim=-1)  # (N,...,T)
-
-    # For boundary constraints, we add -eps to front and 1+eps to
-    # end of CDF. These correspond to sample positions tnear and tfar
-    eps = torch.finfo(cdf.dtype).eps
-    cdf = torch.cat(
-        (
-            cdf.new_tensor([-eps]).expand(cdf.shape[:-1] + (1,)),
-            cdf,
-            cdf.new_tensor([1 + eps]).expand(cdf.shape[:-1] + (1,)),
-        ),
-        -1,
-    )  # (N,...,T+2)
-    ts = torch.cat((tnear, ts, tfar), -1)  # (N,...,T+2)
+    cdf[..., -1] = 1.0
 
     # Piecewise linear functions of CDFs between consecutive
     # ts/cdf sample points. Using tools from perspective geometry
@@ -239,7 +217,7 @@ def sample_ray_step_informed(
         xyone[..., 1:, :],
         xyone[..., :-1, :],
         dim=-1,
-    )  # (N,...,T+1,3), at+bu+c=0
+    )  # (N,...,T-1,3), at+bu+c=0
 
     # Generate n_samples+1 sorted uniform samples per batch
     # See https://cs.stackexchange.com/a/50553/154714
@@ -249,22 +227,16 @@ def sample_ray_step_informed(
         )
     u = e.cumsum(-1)
     u = u[..., :-1] / u[..., -1:]  # last one is not valid, # (N,...,n_samples)
-    if not torch.isfinite(u).any():
-        print("u violation", u.min(), u.max())
 
     # Invoke the inverse CDF: x=CDF^-1(u) by locating the left-edge of the bin
     # u belongs to. This gives us also the linear segment which we solve for t given u
     # t = -(bu+c)/a
     low = torch.searchsorted(cdf, u, side="right") - 1  # (N,...,n_samples)
+    low = low.clamp(0, T - 2)  # we have 1 less piecwise lines than input samples
     low = low.unsqueeze(-1).expand(low.shape + (3,))  # (N,...,n_samples,3)
     uline = torch.gather(lines, dim=-2, index=low)  # (N,...,n_samples,3)
-    t = -(uline[..., 1] * u + uline[..., 2]) / (uline[..., 0])  # avoid div 0
-    t = t.movedim(-1, 0).unsqueeze(-1).contiguous()  # (T,N,...,1)
-
-    if ((t[1:] - t[:-1]) < 0.0).any():
-        print((t[1:] - t[:-1]).min())
-        rdata["e"] = e
-        torch.save(rdata, f"tmp/resample_input_{random.randint(0,1000)}.pkl")
+    t = -(uline[..., 1] * u + uline[..., 2]) / (uline[..., 0])  # (N,...,n_samples)
+    t = t.clamp(tnear, tfar).movedim(-1, 0).unsqueeze(-1).contiguous()  # (T,N,...,1)
 
     return t
 
