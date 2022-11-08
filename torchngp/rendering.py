@@ -22,6 +22,7 @@ def render_radiance_field(
     uv: torch.Tensor,
     n_ray_t_steps: int = 100,
     boost_tfar: float = 1.0,
+    resample: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
 
     batch_shape = uv.shape[:-1]
@@ -38,28 +39,48 @@ def render_radiance_field(
     )
 
     # Determine set of rays that actually intersect (N,...)
-    ray_hit = (ray_tnear < ray_tfar).squeeze(-1)
+    ray_hit = ((ray_tfar - ray_tnear) > 1e-2).squeeze(-1)
     ray_origin = ray_origin[ray_hit]
     ray_dir = ray_dir[ray_hit]
     ray_tnear = ray_tnear[ray_hit]
     ray_tfar = ray_tfar[ray_hit]
 
-    # Sample ray steps (T,V,1)
-    ray_ts = sampling.sample_ray_step_stratified(
-        ray_tnear, ray_tfar, n_samples=n_ray_t_steps
-    )
+    with torch.no_grad():
+        if resample:
+            # Sample ray steps (20,V,1)
+            ray_ts = sampling.sample_ray_step_stratified(
+                ray_tnear, ray_tfar, n_samples=n_ray_t_steps // 4
+            )
+            xyz = geometric.evaluate_ray(ray_origin, ray_dir, ray_ts)
+            f = radiance_field.encode(xyz)
+            sigma = radiance_field.decode_density(f)
+            log_transm = radiance.integrate_path_density(
+                sigma, torch.cat((ray_ts, boost_tfar * ray_tfar.unsqueeze(0)))
+            )
+            # T(i)*alpha(i)
+            weights = (log_transm[:-1] - log_transm[1:]).exp()
 
-    ray_ynm = None
-    if with_harmonics:
-        ray_ynm = (
-            rsh_cart_3(ray_dir)
-            .unsqueeze(0)
-            .expand(ray_ts.shape[0], -1, -1)
-            .contiguous()
-        )
+            ray_ts = sampling.sample_ray_step_informed(
+                ray_ts, ray_tnear, ray_tfar, weights, n_samples=n_ray_t_steps
+            )
 
-    # Evaluate world points (T,V,3)
-    xyz = geometric.evaluate_ray(ray_origin, ray_dir, ray_ts)
+        else:
+            # Sample ray steps (T,V,1)
+            ray_ts = sampling.sample_ray_step_stratified(
+                ray_tnear, ray_tfar, n_samples=n_ray_t_steps
+            )
+
+        ray_ynm = None
+        if with_harmonics:
+            ray_ynm = (
+                rsh_cart_3(ray_dir)
+                .unsqueeze(0)
+                .expand(ray_ts.shape[0], -1, -1)
+                .contiguous()
+            )
+
+        # Evaluate world points (T,V,3)
+        xyz = geometric.evaluate_ray(ray_origin, ray_dir, ray_ts)
 
     # Predict radiance properties
     color, sigma = radiance_field(xyz, color_cond=ray_ynm)
@@ -71,6 +92,9 @@ def render_radiance_field(
 
     final_alpha = 1.0 - integ_log_transm[-2].exp()
     final_color = integ_color[-1]
+
+    if (final_alpha < 0.0).any():
+        print(integ_log_transm[-2])
 
     out_color = color.new_zeros(batch_shape + color.shape[-1:])
     out_alpha = sigma.new_zeros(batch_shape + (1,))
@@ -113,7 +137,7 @@ def render_radiance_field_time_batches(
     ray_ts = torch.cat((ray_ts, boost_tfar * ray_tfar.unsqueeze(0)), 0)
 
     # Ray-active mask (N,...)
-    ray_mask = (ray_tnear < ray_tfar).squeeze(-1)
+    ray_mask = ((ray_tfar - ray_tnear) > 1e-2).squeeze(-1)
     log_transm_th = math.log(1e-5)
 
     for ti, tj in _strided_windows(ray_ts.shape[0], 20, 20 - 1):
@@ -152,7 +176,9 @@ def render_camera_views(
     cam: cameras.MultiViewCamera,
     radiance_field: radiance.RadianceField,
     aabb: torch.Tensor,
-    n_ray_step_samples: int = 100,
+    n_ray_t_steps: int = 100,
+    boost_tfar: float = 1.0,
+    resample: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
 
     gen = sampling.generate_sequential_uv_samples(
@@ -163,7 +189,13 @@ def render_camera_views(
     alpha_parts = []
     for uv, _ in gen:
         color, alpha = render_radiance_field(
-            radiance_field, aabb, cam, uv, n_ray_t_steps=n_ray_step_samples
+            radiance_field,
+            aabb,
+            cam,
+            uv,
+            n_ray_t_steps=n_ray_t_steps,
+            boost_tfar=boost_tfar,
+            resample=resample,
         )
         color_parts.append(color)
         alpha_parts.append(alpha)
@@ -173,4 +205,5 @@ def render_camera_views(
     W, H = cam.size
     color = torch.cat(color_parts, 1).view(N, H, W, C)
     alpha = torch.cat(alpha_parts, 1).view(N, H, W, 1)
+    print(color.min(), color.max(), alpha.min(), alpha.max())
     return color, alpha
