@@ -191,13 +191,14 @@ def sample_ray_step_informed(
             weight distribution
     """
     T = ts.shape[0]
+    eps = torch.finfo(ts.dtype).eps
 
     # For computational reasons we shuffle the T dimension to last
     ts = ts.squeeze(-1).movedim(0, -1)  # (N,...,T)
     weights = weights.squeeze(-1).movedim(0, -1)  # (N,...,T)
 
     # Create PMF over weights per ray
-    pmf = weights / weights.sum(-1, keepdim=True)  # (N,...,T)
+    pmf = weights / (weights.sum(-1, keepdim=True) + eps)  # (N,...,T)
     # Create CDF for inverse uniform sampling
     cdf = pmf.cumsum(dim=-1)  # (N,...,T)
     cdf[..., -1] = 1.0
