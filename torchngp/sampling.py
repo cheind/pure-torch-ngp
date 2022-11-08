@@ -136,6 +136,8 @@ def sample_ray_step_stratified(
         ray_tnear.unsqueeze(0) + ifrac.view((n_samples,) + batch_ones) * td
     )  # (b,N,...,1)
     ts = tnear_bins + (td / n_samples) * u
+    if ((ts[1:] - ts[:-1]) < 0.0).any():
+        print("ts violation", (ts[1:] - ts[:-1]).min(), td.min())
     return ts
 
 
@@ -145,6 +147,7 @@ def sample_ray_step_informed(
     tfar: torch.Tensor,
     weights: torch.Tensor,
     n_samples: int,
+    e: torch.Tensor = None,
 ) -> torch.Tensor:
     """(Re)samples ray steps from a per-ray probability distribution
     estimated by a discrete set of weights.
@@ -188,6 +191,17 @@ def sample_ray_step_informed(
             weight distribution
     """
 
+    import pickle
+    import random
+
+    rdata = {
+        "ts": ts.clone(),
+        "tnear": tnear.clone(),
+        "tfar": tfar.clone(),
+        "weights": weights.clone(),
+        "n_samples": n_samples,
+    }
+
     # For computational reasons we shuffle the T dimension to last
     ts = ts.squeeze(-1).movedim(0, -1)  # (N,...,T)
     weights = weights.squeeze(-1).movedim(0, -1)  # (N,...,T)
@@ -229,11 +243,14 @@ def sample_ray_step_informed(
 
     # Generate n_samples+1 sorted uniform samples per batch
     # See https://cs.stackexchange.com/a/50553/154714
-    e: torch.Tensor = D.Exponential(ts.new_tensor(1.0)).sample(
-        ts.shape[:-1] + (n_samples + 1,)
-    )
+    if e is None:
+        e: torch.Tensor = D.Exponential(ts.new_tensor(1.0)).sample(
+            ts.shape[:-1] + (n_samples + 1,)
+        )
     u = e.cumsum(-1)
     u = u[..., :-1] / u[..., -1:]  # last one is not valid, # (N,...,n_samples)
+    if not torch.isfinite(u).any():
+        print("u violation", u.min(), u.max())
 
     # Invoke the inverse CDF: x=CDF^-1(u) by locating the left-edge of the bin
     # u belongs to. This gives us also the linear segment which we solve for t given u
@@ -241,8 +258,15 @@ def sample_ray_step_informed(
     low = torch.searchsorted(cdf, u, side="right") - 1  # (N,...,n_samples)
     low = low.unsqueeze(-1).expand(low.shape + (3,))  # (N,...,n_samples,3)
     uline = torch.gather(lines, dim=-2, index=low)  # (N,...,n_samples,3)
-    t = -(uline[..., 1] * u + uline[..., 2]) / (uline[..., 0] + eps)  # avoid div 0
-    return t.movedim(-1, 0).unsqueeze(-1)  # (T,N,...,1)
+    t = -(uline[..., 1] * u + uline[..., 2]) / (uline[..., 0])  # avoid div 0
+    t = t.movedim(-1, 0).unsqueeze(-1).contiguous()  # (T,N,...,1)
+
+    if ((t[1:] - t[:-1]) < 0.0).any():
+        print((t[1:] - t[:-1]).min())
+        rdata["e"] = e
+        torch.save(rdata, f"tmp/resample_input_{random.randint(0,1000)}.pkl")
+
+    return t
 
 
 def _sample_features_uv(
