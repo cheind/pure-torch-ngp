@@ -1,9 +1,8 @@
 import pytest
 import torch
-import pickle
 from torch.testing import assert_close
 
-from torchngp import sampling, cameras, linalg
+from torchngp import sampling, cameras
 
 
 def test_sample_ray_step_stratified():
