@@ -3,7 +3,7 @@ from torch.testing import assert_close
 
 from torchngp import geometric as geo
 from torchngp.cameras import MultiViewCamera
-from torchngp.linalg import rotation_matrix, dehom
+from torchngp.linalg import rotation_matrix
 
 
 def test_world_rays_shape():
