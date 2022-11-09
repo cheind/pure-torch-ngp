@@ -1,5 +1,6 @@
 import time
 from itertools import islice
+from PIL import Image
 
 import torch
 import torch.nn
@@ -7,7 +8,8 @@ import torch.utils.data
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from torchngp import rendering, radiance, cameras, sampling
+from torchngp import rendering, radiance, cameras, sampling, plotting
+import matplotlib.pyplot as plt
 
 
 class MultiViewDataset(torch.utils.data.IterableDataset):
@@ -63,12 +65,14 @@ def train(
     lr: float = 1e-2,
     max_train_secs: float = 180,
     dev: torch.device = None,
+    preload: bool = True,
 ):
     if dev is None:
         dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     nerf = nerf.train().to(dev)
-    train_mvs = [x.to(dev) for x in train_mvs]
-    test_mvs = [x.to(dev) for x in test_mvs]
+    if preload:
+        train_mvs = [x.to(dev) for x in train_mvs]
+        test_mvs = [x.to(dev) for x in test_mvs]
 
     opt = torch.optim.AdamW(
         [
@@ -82,7 +86,7 @@ def train(
     )
 
     sched = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        opt, mode="min", factor=0.75, patience=40, min_lr=1e-6
+        opt, mode="min", factor=0.75, patience=20, min_lr=1e-6
     )
 
     n_views = train_mvs[0].n_views
@@ -112,6 +116,9 @@ def train(
     while True:
         pbar = tqdm(train_dl, mininterval=0.1)
         for (uv, color) in pbar:
+            uv = uv.to(dev)
+            color = color.to(dev)
+            train_cams = train_mvs[0].to(dev)
             B, N, M, C = color.shape
             # uv is (B,N,M,2) N=num cams, M=minibatch
             # uf_features is (B,N,M,C)
@@ -132,10 +139,11 @@ def train(
                 pred_rgb, pred_alpha = rendering.render_radiance_field(
                     nerf,
                     nerf.aabb,
-                    train_mvs[0],
+                    train_cams,
                     uv,
                     n_ray_t_steps=n_ray_step_samples,
                     boost_tfar=10.0,
+                    resample=False,
                 )
                 pred_rgb_mixed = pred_rgb * pred_alpha + noise * (1 - pred_alpha)
 
@@ -155,21 +163,36 @@ def train(
                 return
 
             if t_now - t_last_dump > 30:
-                from . import plotting
-                import matplotlib.pyplot as plt
 
                 with torch.no_grad(), torch.cuda.amp.autocast(enabled=use_amp):
                     nerf.eval()
                     pred_color, pred_alpha = rendering.render_camera_views(
-                        test_mvs[0],
+                        test_mvs[0].to(dev),
                         nerf,
                         nerf.aabb,
-                        n_ray_step_samples=n_ray_step_samples,
+                        n_ray_t_steps=n_ray_step_samples,
+                        boost_tfar=10.0,
+                        resample=False,
                     )
                     pred_img = torch.cat((pred_color, pred_alpha), -1).permute(
                         0, 3, 1, 2
                     )
-                    val_loss = F.mse_loss(pred_img, test_mvs[1])
+                    grid_img = (
+                        (
+                            plotting.make_image_grid(
+                                pred_img, checkerboard_bg=False, scale=1.0
+                            )
+                            * 255
+                        )
+                        .to(torch.uint8)
+                        .permute(1, 2, 0)
+                        .cpu()
+                        .numpy()
+                    )
+                    Image.fromarray(grid_img, mode="RGBA").save(
+                        f"tmp/img_raw_{int(t_now - t_start):03d}.png"
+                    )
+                    val_loss = F.mse_loss(pred_img, test_mvs[1].to(dev))
                     pbar_postfix["val_loss"] = val_loss.item()
                     ax = plotting.plot_image(pred_img, checkerboard_bg=True)
                     fig = ax.get_figure()
@@ -184,17 +207,28 @@ def train(
 
 
 if __name__ == "__main__":
-    from . import plotting
-    from .io import load_scene_from_json
 
-    import matplotlib.pyplot as plt
+    from .io import load_scene_from_json
 
     torch.multiprocessing.set_start_method("spawn")
 
     dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    # camera_train, aabb, gt_images_train = load_scene_from_json(
+    #     "./data/lego/transforms_train.json", load_images=True
+    # )
+    # camera_val, _, gt_images_val = load_scene_from_json(
+    #     "./data/lego/transforms_val.json", load_images=True
+    # )
+    # train_mvs = (camera_train, gt_images_train)
+    # val_mvs = (camera_val[:3], gt_images_val[:3])
+
     camera, aabb, gt_images = load_scene_from_json(
-        "data/suzanne/transforms.json", load_images=True
+        "./data/suzanne/transforms.json", load_images=True
     )
+
+    train_mvs = camera[:-2], gt_images[:-2]
+    val_mvs = camera[-2:], gt_images[-2:]
+
     # plotting.plot_camera(camera)
     # plotting.plot_box(aabb)
     # plt.gca().set_aspect("equal")
@@ -208,6 +242,7 @@ if __name__ == "__main__":
         n_hidden=64,
         n_encodings=2**14,
         n_levels=16,
+        n_color_cond=16,
         min_res=32,
         max_res=512,  # can now specify much larger resolutions due to hybrid approach
         max_n_dense=256**3,
@@ -218,30 +253,31 @@ if __name__ == "__main__":
     train_time = 10 * 60
     train(
         nerf=nerf,
-        train_mvs=(camera[:-1], gt_images[:-1]),
-        test_mvs=(camera[-1:], gt_images[-1:]),
+        train_mvs=train_mvs,
+        test_mvs=val_mvs,
         batch_size=2**14,
-        n_ray_step_samples=40,
+        n_ray_step_samples=128,
         lr=1e-2,
         max_train_secs=train_time,
+        preload=False,
         dev=dev,
     )
 
-    with torch.no_grad(), torch.cuda.amp.autocast():
-        import numpy as np
+    # with torch.no_grad(), torch.cuda.amp.autocast():
+    #     import numpy as np
 
-        t = time.time()
-        vol_colors, vol_sigma = radiance.rasterize_field(
-            nerf, nerf.aabb, (512, 512, 512), batch_size=2**18, device=dev
-        )
-        vol_rgbd = torch.cat((vol_colors, vol_sigma), -1).cpu()
-        print(time.time() - t)
-        np.savez(
-            "tmp/volume.npz",
-            rgb=vol_rgbd[..., :3],
-            d=vol_rgbd[..., 3],
-            aabb=nerf.aabb.cpu(),
-        )
+    #     t = time.time()
+    #     vol_colors, vol_sigma = radiance.rasterize_field(
+    #         nerf, nerf.aabb, (512, 512, 512), batch_size=2**18, device=dev
+    #     )
+    #     vol_rgbd = torch.cat((vol_colors, vol_sigma), -1).cpu()
+    #     print(time.time() - t)
+    #     np.savez(
+    #         "tmp/volume.npz",
+    #         rgb=vol_rgbd[..., :3],
+    #         d=vol_rgbd[..., 3],
+    #         aabb=nerf.aabb.cpu(),
+    #     )
 
     # # ax = plotting.plot_camera(mvs.cameras)
     # # ax = plotting.plot_box(mvs.aabb)

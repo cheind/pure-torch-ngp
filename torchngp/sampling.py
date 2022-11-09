@@ -1,5 +1,4 @@
 from typing import Iterator, Optional
-from pyparsing import line
 import torch
 import torch.nn.functional as F
 import torch.distributions as D
@@ -145,6 +144,7 @@ def sample_ray_step_informed(
     tfar: torch.Tensor,
     weights: torch.Tensor,
     n_samples: int,
+    e: torch.Tensor = None,
 ) -> torch.Tensor:
     """(Re)samples ray steps from a per-ray probability distribution
     estimated by a discrete set of weights.
@@ -187,28 +187,18 @@ def sample_ray_step_informed(
         ts_informed: (n_samples,N,...,1) samples following the
             weight distribution
     """
+    T = ts.shape[0]
+    eps = torch.finfo(ts.dtype).eps
 
     # For computational reasons we shuffle the T dimension to last
     ts = ts.squeeze(-1).movedim(0, -1)  # (N,...,T)
     weights = weights.squeeze(-1).movedim(0, -1)  # (N,...,T)
 
     # Create PMF over weights per ray
-    pmf = weights / weights.sum(-1, keepdim=True)  # (N,...,T)
+    pmf = weights / (weights.sum(-1, keepdim=True) + eps)  # (N,...,T)
     # Create CDF for inverse uniform sampling
     cdf = pmf.cumsum(dim=-1)  # (N,...,T)
-
-    # For boundary constraints, we add -eps to front and 1+eps to
-    # end of CDF. These correspond to sample positions tnear and tfar
-    eps = torch.finfo(cdf.dtype).eps
-    cdf = torch.cat(
-        (
-            cdf.new_tensor([-eps]).expand(cdf.shape[:-1] + (1,)),
-            cdf,
-            cdf.new_tensor([1 + eps]).expand(cdf.shape[:-1] + (1,)),
-        ),
-        -1,
-    )  # (N,...,T+2)
-    ts = torch.cat((tnear, ts, tfar), -1)  # (N,...,T+2)
+    cdf[..., -1] = 1.0
 
     # Piecewise linear functions of CDFs between consecutive
     # ts/cdf sample points. Using tools from perspective geometry
@@ -225,13 +215,14 @@ def sample_ray_step_informed(
         xyone[..., 1:, :],
         xyone[..., :-1, :],
         dim=-1,
-    )  # (N,...,T+1,3), at+bu+c=0
+    )  # (N,...,T-1,3), at+bu+c=0
 
     # Generate n_samples+1 sorted uniform samples per batch
     # See https://cs.stackexchange.com/a/50553/154714
-    e: torch.Tensor = D.Exponential(ts.new_tensor(1.0)).sample(
-        ts.shape[:-1] + (n_samples + 1,)
-    )
+    if e is None:
+        e: torch.Tensor = D.Exponential(ts.new_tensor(1.0)).sample(
+            ts.shape[:-1] + (n_samples + 1,)
+        )
     u = e.cumsum(-1)
     u = u[..., :-1] / u[..., -1:]  # last one is not valid, # (N,...,n_samples)
 
@@ -239,10 +230,13 @@ def sample_ray_step_informed(
     # u belongs to. This gives us also the linear segment which we solve for t given u
     # t = -(bu+c)/a
     low = torch.searchsorted(cdf, u, side="right") - 1  # (N,...,n_samples)
+    low = low.clamp(0, T - 2)  # we have 1 less piecwise lines than input samples
     low = low.unsqueeze(-1).expand(low.shape + (3,))  # (N,...,n_samples,3)
     uline = torch.gather(lines, dim=-2, index=low)  # (N,...,n_samples,3)
-    t = -(uline[..., 1] * u + uline[..., 2]) / (uline[..., 0] + eps)  # avoid div 0
-    return t.movedim(-1, 0).unsqueeze(-1)  # (T,N,...,1)
+    t = -(uline[..., 1] * u + uline[..., 2]) / (uline[..., 0])  # (N,...,n_samples)
+    t = t.clamp(tnear, tfar).movedim(-1, 0).unsqueeze(-1).contiguous()  # (T,N,...,1)
+
+    return t
 
 
 def _sample_features_uv(

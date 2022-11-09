@@ -1,7 +1,8 @@
+import pytest
 import torch
 from torch.testing import assert_close
 
-from torchngp import sampling, cameras, linalg
+from torchngp import sampling, cameras
 
 
 def test_sample_ray_step_stratified():
@@ -81,6 +82,22 @@ def test_sample_ray_step_informed():
     ll = (weights + 1e-5).log().sum()
     ll_new = (weights_new + 1e-5).log().sum()
     assert ll / ll_new > 2.0
+
+
+@pytest.mark.parametrize(
+    "fname",
+    ["resample_input_20.pkl", "resample_input_508.pkl", "resample_input_636.pkl"],
+)
+def test_sample_ray_step_informed_errors(fname):
+    from pathlib import Path
+
+    torch.use_deterministic_algorithms(True)
+    d = torch.load(
+        str(Path("data/testdata/sample_informed") / fname), map_location="cpu"
+    )
+    ts = sampling.sample_ray_step_informed(**d)
+    assert not ((ts[1:] - ts[:-1]) < 0.0).any()
+    assert ((ts >= d["tnear"]) & (ts <= d["tfar"])).all()
 
 
 def test_generate_sequential_uv_samples():

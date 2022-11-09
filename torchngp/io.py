@@ -85,7 +85,7 @@ def load_scene_from_json(
         # Handle extrinsics. Correct non-orthonormal rotations.
         # That's the case for some frames of the fox-dataset.
         t = torch.tensor(frame["transform_matrix"]).to(torch.float64)
-        if (torch.det(t[:3, :3]) - 1.0) > 1e-8:
+        if (torch.det(t[:3, :3]) - 1.0) > 1e-5:
             print(f"Correcting rotation matrix for {str(imgpath)}")
             res = torch.svd(t[:3, :3])
             u, s, v = res
