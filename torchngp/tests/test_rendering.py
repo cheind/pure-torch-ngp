@@ -53,4 +53,6 @@ def test_render_volume_stratified():
     color = torch.cat(color_parts, 1).view(1, H, W, 3)
     alpha = torch.cat(alpha_parts, 1).view(1, H, W, 1)
     img2 = torch.cat((color, alpha), -1)
-    assert_close(img, img2)
+    assert_close(
+        img, img2, atol=1e-4, rtol=1e-4
+    )  # TODO: when normalize_dirs=False/True gives different results
