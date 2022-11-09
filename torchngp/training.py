@@ -8,7 +8,8 @@ import torch.utils.data
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from torchngp import rendering, radiance, cameras, sampling
+from torchngp import rendering, radiance, cameras, sampling, plotting
+import matplotlib.pyplot as plt
 
 
 class MultiViewDataset(torch.utils.data.IterableDataset):
@@ -141,7 +142,7 @@ def train(
                     train_cams,
                     uv,
                     n_ray_t_steps=n_ray_step_samples,
-                    boost_tfar=1.0,
+                    boost_tfar=10.0,
                     resample=False,
                 )
                 pred_rgb_mixed = pred_rgb * pred_alpha + noise * (1 - pred_alpha)
@@ -162,8 +163,6 @@ def train(
                 return
 
             if t_now - t_last_dump > 30:
-                from . import plotting
-                import matplotlib.pyplot as plt
 
                 with torch.no_grad(), torch.cuda.amp.autocast(enabled=use_amp):
                     nerf.eval()
@@ -172,8 +171,8 @@ def train(
                         nerf,
                         nerf.aabb,
                         n_ray_t_steps=n_ray_step_samples,
-                        boost_tfar=1.0,
-                        resample=True,
+                        boost_tfar=10.0,
+                        resample=False,
                     )
                     pred_img = torch.cat((pred_color, pred_alpha), -1).permute(
                         0, 3, 1, 2
@@ -208,23 +207,27 @@ def train(
 
 
 if __name__ == "__main__":
-    from . import plotting
-    from .io import load_scene_from_json
 
-    import matplotlib.pyplot as plt
+    from .io import load_scene_from_json
 
     torch.multiprocessing.set_start_method("spawn")
 
     dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    camera_train, aabb, gt_images_train = load_scene_from_json(
-        "./data/lego/transforms_train.json", load_images=True
-    )
-    camera_val, _, gt_images_val = load_scene_from_json(
-        "./data/lego/transforms_val.json", load_images=True
+    # camera_train, aabb, gt_images_train = load_scene_from_json(
+    #     "./data/lego/transforms_train.json", load_images=True
+    # )
+    # camera_val, _, gt_images_val = load_scene_from_json(
+    #     "./data/lego/transforms_val.json", load_images=True
+    # )
+    # train_mvs = (camera_train, gt_images_train)
+    # val_mvs = (camera_val[:3], gt_images_val[:3])
+
+    camera, aabb, gt_images = load_scene_from_json(
+        "./data/suzanne/transforms.json", load_images=True
     )
 
-    train_mvs = (camera_train, gt_images_train)
-    val_mvs = (camera_val[:3], gt_images_val[:3])
+    train_mvs = camera[:-2], gt_images[:-2]
+    val_mvs = camera[-2:], gt_images[-2:]
 
     # plotting.plot_camera(camera)
     # plotting.plot_box(aabb)
@@ -253,8 +256,8 @@ if __name__ == "__main__":
         train_mvs=train_mvs,
         test_mvs=val_mvs,
         batch_size=2**14,
-        n_ray_step_samples=80,
-        lr=5e-2,
+        n_ray_step_samples=128,
+        lr=1e-2,
         max_train_secs=train_time,
         preload=False,
         dev=dev,
