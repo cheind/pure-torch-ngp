@@ -1,4 +1,4 @@
-from typing import Callable, Union, Optional, Protocol
+from typing import Union, Optional, Protocol
 
 import torch
 import torch.nn
@@ -85,10 +85,6 @@ def integrate_path_density(
 
     # delta[i] is defined as the segment lengths between ts[i+1] and ts[i]
     delta = ts[1:] - ts[:-1]  # (T+1,N,...,1) -> (T,N,...,1)
-
-    if (delta < 0).any():
-        print("delta violation", delta.min())
-        delta = delta.abs()
 
     # Eps is necessary because in testing sigma is often inf and if delta
     # is zero then 0.0*float('inf')=nan
@@ -259,7 +255,7 @@ class NeRF(torch.nn.Module, RadianceField):
             torch.nn.Linear(n_hidden, n_colors),
         )
 
-        print(sum(param.numel() for param in self.parameters()))
+        # print(sum(param.numel() for param in self.parameters()))
 
     def encode(self, xyz: torch.Tensor) -> torch.Tensor:
         """Return features from positions.
