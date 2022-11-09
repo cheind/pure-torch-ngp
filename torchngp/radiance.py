@@ -273,13 +273,19 @@ class NeRF(torch.nn.Module, RadianceField):
 
         # Compute normalized box coords
         xn = geometric.convert_world_to_box_normalized(xyz, self.aabb)
+        mask = ((xn >= -1.0) & (xn <= 1.0)).all(-1)
 
         # Compute encoder features and pass them trough density mlp.
-        xn_flat = xn.view(-1, 3)
+
+        xn_flat = xn[mask].view(-1, 3)
         h = self.pos_encoder(xn_flat)
         d = self.density_mlp(h)
 
-        return d.view(batch_shape + (16,))
+        out = xn.new_zeros((batch_shape + (16,)))
+        out[..., 0] = math.log(1e-8)  # TODO: that's a pretty large negative number?
+        out[mask] = d.to(out.dtype)
+
+        return out
 
     def decode_density(self, f: torch.Tensor) -> torch.Tensor:
         """Return density estimates from encoded features.

@@ -26,6 +26,46 @@ def test_sample_ray_step_stratified():
     assert (ts[1:] - ts[:-1] >= 0).all()
 
 
+def test_sample_ray_fixed_step_stratified():
+    tnear = torch.tensor([0.0, 10.0]).repeat_interleave(100).view(2, 100, 1)
+    # disable noise
+    ts = sampling.sample_ray_fixed_step_stratified(
+        tnear, stepsize=0.5, n_samples=2, noise_scale=0
+    )
+    assert ts.shape == (2, 2, 100, 1)
+    assert (ts[1:] - ts[:-1] >= 0).all()
+
+    assert_close(ts[:, 0], torch.tensor([0.25, 0.75]).view(2, 1, 1).expand(-1, 100, -1))
+    assert_close(
+        ts[:, 1], torch.tensor([10.25, 10.75]).view(2, 1, 1).expand(-1, 100, -1)
+    )
+
+    # enable noise
+    tnear = torch.tensor([0.0]).repeat_interleave(10000).view(10000, 1)
+    ts = sampling.sample_ray_fixed_step_stratified(
+        tnear, stepsize=0.5, n_samples=32, noise_scale=None
+    )
+    assert ts.shape == (32, 10000, 1)
+    assert (ts[1:] - ts[:-1] >= 0).all()
+
+    # import matplotlib.pyplot as plt
+
+    # # enable noise
+    # tnear = torch.tensor([0.0]).view(1, 1)
+    # ts = sampling.sample_ray_fixed_step_stratified(
+    #     tnear, stepsize=0.5, n_samples=32, noise_scale=None
+    # )
+    # plt.plot(ts[:, 0], torch.tensor([1.0]).expand_as(ts[:, 0]))
+    # plt.scatter(ts[:, 0], torch.tensor([1.0]).expand_as(ts[:, 0]))
+
+    # ts = sampling.sample_ray_fixed_step_stratified(
+    #     tnear, stepsize=0.5, n_samples=32, noise_scale=1e-1
+    # )
+    # plt.plot(ts[:, 0], torch.tensor([2.0]).expand_as(ts[:, 0]))
+    # plt.scatter(ts[:, 0], torch.tensor([2.0]).expand_as(ts[:, 0]))
+    # plt.show()
+
+
 def test_sample_ray_step_stratified_repeated_same_as_once():
     torch.random.manual_seed(123)
 

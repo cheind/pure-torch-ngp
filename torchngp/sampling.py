@@ -138,6 +138,45 @@ def sample_ray_step_stratified(
     return ts
 
 
+def sample_ray_fixed_step_stratified(
+    ray_tnear: torch.Tensor, stepsize: float, n_samples: int, noise_scale: float = None
+) -> torch.Tensor:
+    """Creates stratified ray step random samples between tnear/tfar.
+
+    The returned samples per ray are guaranteed to be sorted
+    in step ascending order.
+
+    Params:
+        ray_tnear: (N,...,1) ray start
+        stepsize: step size
+        n_samples: number of steps
+
+    Returns:
+        tsamples: (n_bins,N,...,1)
+
+    Based on:
+        NeRF: Representing Scenes as
+        Neural Radiance Fields for View Synthesis
+        https://arxiv.org/pdf/2003.08934.pdf
+        https://en.wikipedia.org/wiki/Stratified_sampling
+    """
+    S = ray_tnear.shape
+    dev = ray_tnear.device
+    dtype = ray_tnear.dtype
+    eps = torch.finfo(dtype).eps
+    half_step = stepsize * 0.5
+
+    ts = torch.arange(0, stepsize * n_samples, stepsize, device=dev, dtype=dtype)
+    ts = ts + half_step
+    if noise_scale is None:
+        noise_scale = half_step - eps
+    assert noise_scale < half_step, "Decrease noise scale or lose sample order"
+
+    u = ray_tnear.new_empty((ts.shape[0],) + S).uniform_(-noise_scale, noise_scale)
+    ts = ts.view((ts.shape[0],) + (1,) * len(S)) + ray_tnear + u
+    return ts
+
+
 def sample_ray_step_informed(
     ts: torch.Tensor,
     tnear: torch.Tensor,
