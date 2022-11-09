@@ -1,5 +1,4 @@
 from typing import Iterator, Optional
-from pyparsing import line
 import torch
 import torch.nn.functional as F
 import torch.distributions as D
@@ -136,8 +135,6 @@ def sample_ray_step_stratified(
         ray_tnear.unsqueeze(0) + ifrac.view((n_samples,) + batch_ones) * td
     )  # (b,N,...,1)
     ts = tnear_bins + (td / n_samples) * u
-    if ((ts[1:] - ts[:-1]) < 0.0).any():
-        print("ts violation", (ts[1:] - ts[:-1]).min(), td.min())
     return ts
 
 
