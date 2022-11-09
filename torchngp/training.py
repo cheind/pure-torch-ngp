@@ -77,8 +77,8 @@ def train(
     opt = torch.optim.AdamW(
         [
             {"params": nerf.pos_encoder.parameters(), "weight_decay": 0.0},
-            {"params": nerf.density_mlp.parameters(), "weight_decay": 1e-6},
-            {"params": nerf.color_mlp.parameters(), "weight_decay": 1e-6},
+            {"params": nerf.density_mlp.parameters(), "weight_decay": 1e-8},
+            {"params": nerf.color_mlp.parameters(), "weight_decay": 1e-8},
         ],
         betas=(0.9, 0.99),
         eps=1e-15,
@@ -86,13 +86,16 @@ def train(
     )
 
     sched = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        opt, mode="min", factor=0.75, patience=20, min_lr=1e-6
+        opt, mode="min", factor=0.75, patience=20, min_lr=1e-4
     )
 
     n_views = train_mvs[0].n_views
     n_worker = 4
-    n_samples_per_cam = train_mvs[0].size[0].item()
-    final_batch_size = max(batch_size // (n_samples_per_cam * n_views), 1)
+    n_t_batch = 16
+    n_samples_per_cam = int(batch_size / n_views / n_worker / n_t_batch)
+
+    # n_samples_per_cam = train_mvs[0].size[0].item()
+    # final_batch_size = max(batch_size // (n_samples_per_cam * n_views), 1)
 
     train_ds = MultiViewDataset(
         camera=train_mvs[0],
@@ -103,7 +106,7 @@ def train(
     )
     train_dl = torch.utils.data.DataLoader(
         train_ds,
-        batch_size=final_batch_size,
+        batch_size=n_worker,
         num_workers=n_worker,
     )
 
@@ -136,15 +139,18 @@ def train(
                 # model does not have to learn randomness.
                 gt_rgb_mixed = rgb * alpha + noise * (1 - alpha)
 
-                pred_rgb, pred_alpha = rendering.render_radiance_field(
-                    nerf,
-                    nerf.aabb,
-                    train_cams,
-                    uv,
-                    n_ray_t_steps=n_ray_step_samples,
-                    boost_tfar=10.0,
-                    resample=False,
-                )
+                rnd = rendering.RadianceRenderer(nerf, nerf.aabb, train_cams)
+                pred_rgb, pred_alpha = rnd.render_uv(uv, ray_tbatch=n_t_batch)
+
+                # pred_rgb, pred_alpha = rendering.render_radiance_field(
+                #     nerf,
+                #     nerf.aabb,
+                #     train_cams,
+                #     uv,
+                #     n_ray_t_steps=n_ray_step_samples,
+                #     boost_tfar=1.0,
+                #     resample=False,
+                # )
                 pred_rgb_mixed = pred_rgb * pred_alpha + noise * (1 - pred_alpha)
 
                 loss = F.mse_loss(pred_rgb_mixed, gt_rgb_mixed)
@@ -154,7 +160,6 @@ def train(
             scaled_loss.backward()
             scaler.step(opt)
             scaler.update()
-            # opt.step()
             sched.step(loss)
             pbar_postfix["loss"] = loss.item()
             pbar_postfix["lr"] = sched._last_lr
@@ -162,7 +167,7 @@ def train(
             if (t_now - t_start) > max_train_secs:
                 return
 
-            if t_now - t_last_dump > 30:
+            if t_now - t_last_dump > 5 * 60:
 
                 with torch.no_grad(), torch.cuda.amp.autocast(enabled=use_amp):
                     nerf.eval()
@@ -171,7 +176,7 @@ def train(
                         nerf,
                         nerf.aabb,
                         n_ray_t_steps=n_ray_step_samples,
-                        boost_tfar=10.0,
+                        boost_tfar=1,
                         resample=False,
                     )
                     pred_img = torch.cat((pred_color, pred_alpha), -1).permute(
@@ -213,23 +218,23 @@ if __name__ == "__main__":
     torch.multiprocessing.set_start_method("spawn")
 
     dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    # camera_train, aabb, gt_images_train = load_scene_from_json(
-    #     "./data/lego/transforms_train.json", load_images=True
-    # )
-    # camera_val, _, gt_images_val = load_scene_from_json(
-    #     "./data/lego/transforms_val.json", load_images=True
-    # )
-    # train_mvs = (camera_train, gt_images_train)
-    # val_mvs = (camera_val[:3], gt_images_val[:3])
-
-    camera, aabb, gt_images = load_scene_from_json(
-        "./data/suzanne/transforms.json", load_images=True
+    camera_train, aabb, gt_images_train = load_scene_from_json(
+        "./data/lego/transforms_train.json", load_images=True
     )
+    camera_val, _, gt_images_val = load_scene_from_json(
+        "./data/lego/transforms_val.json", load_images=True
+    )
+    train_mvs = (camera_train, gt_images_train)
+    val_mvs = (camera_val[:3], gt_images_val[:3])
 
-    train_mvs = camera[:-2], gt_images[:-2]
-    val_mvs = camera[-2:], gt_images[-2:]
+    # camera, aabb, gt_images = load_scene_from_json(
+    #     "./data/suzanne/transforms.json", load_images=True
+    # )
 
-    # plotting.plot_camera(camera)
+    # train_mvs = camera[:-2], gt_images[:-2]
+    # val_mvs = camera[-2:], gt_images[-2:]
+
+    # plotting.plot_camera(train_mvs[0])
     # plotting.plot_box(aabb)
     # plt.gca().set_aspect("equal")
     # plt.gca().autoscale()
@@ -240,22 +245,22 @@ if __name__ == "__main__":
     nerf_kwargs = dict(
         n_colors=3,
         n_hidden=64,
-        n_encodings=2**14,
-        n_levels=16,
+        n_encodings=2**16,
+        n_levels=32,
         n_color_cond=16,
         min_res=32,
-        max_res=512,  # can now specify much larger resolutions due to hybrid approach
-        max_n_dense=256**3,
+        max_res=2048,  # can now specify much larger resolutions due to hybrid approach
+        max_n_dense=128**3,
         is_hdr=False,
     )
     nerf = radiance.NeRF(aabb=aabb, **nerf_kwargs).to(dev)
 
-    train_time = 10 * 60
+    train_time = 10 * 3600
     train(
         nerf=nerf,
         train_mvs=train_mvs,
         test_mvs=val_mvs,
-        batch_size=2**14,
+        batch_size=2**18,
         n_ray_step_samples=128,
         lr=1e-2,
         max_train_secs=train_time,
