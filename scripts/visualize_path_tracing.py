@@ -82,9 +82,9 @@ def plot_density_scale(ds, show=True):
 
 
 def main():
-    fig = plot_density_scale(10)
-    fig2 = plot_density_scale(100)
-    fig3 = plot_density_scale(float("inf"))
+    _ = plot_density_scale(10)
+    _ = plot_density_scale(100)
+    _ = plot_density_scale(float("inf"))
 
     plt.show()
 
