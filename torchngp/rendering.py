@@ -30,7 +30,7 @@ def render_radiance_field(
 
     # Get world rays corresponding to pixels (N,...,3)
     ray_origin, ray_dir, ray_tnear, ray_tfar = geometric.world_ray_from_pixel(
-        cam, uv, normalize_dirs=with_harmonics
+        cam, uv, normalize_dirs=True
     )
 
     # Intersect rays with AABB
@@ -122,7 +122,7 @@ def render_radiance_field_time_batches(
 
     # Get world rays (N,...,3)
     ray_origin, ray_dir, ray_tnear, ray_tfar = geometric.world_ray_from_pixel(
-        cam, uv, normalize_dirs=False
+        cam, uv, normalize_dirs=True  # normalize requierd for delta to be [m]
     )
 
     # Intersect rays with AABB
