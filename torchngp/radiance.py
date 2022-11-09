@@ -1,6 +1,7 @@
 from typing import Union, Optional, Protocol
 
 import torch
+import math
 import torch.nn
 import torch.nn.functional as F
 
@@ -241,7 +242,7 @@ class NeRF(torch.nn.Module, RadianceField):
             torch.nn.ReLU(),
             torch.nn.Linear(n_hidden, n_hidden),
             torch.nn.ReLU(),
-            torch.nn.Linear(n_hidden, 16),  # 0 density in log-space
+            torch.nn.Linear(n_hidden, 16),  # 0 index is density in log-space
         )
 
         # 2-layer hidden color mlp
@@ -254,6 +255,8 @@ class NeRF(torch.nn.Module, RadianceField):
             torch.nn.ReLU(),
             torch.nn.Linear(n_hidden, n_colors),
         )
+
+        # torch.nn.init.constant_(self.density_mlp[-1].bias[:1], math.log(1e-3))
 
         # print(sum(param.numel() for param in self.parameters()))
 
