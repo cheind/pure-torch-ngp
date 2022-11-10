@@ -1,4 +1,5 @@
 import time
+import copy
 from itertools import islice
 from PIL import Image
 
@@ -21,8 +22,8 @@ class MultiViewDataset(torch.utils.data.IterableDataset):
         random: bool = True,
         subpixel: bool = True,
     ):
-        self.camera = camera
-        self.images = images
+        self.camera = copy.deepcopy(camera)
+        self.images = images.clone()
         self.n_pixels_per_cam = camera.size.prod().item()
         if n_samples_per_cam is None:
             # width of image per mini-batch
@@ -55,13 +56,76 @@ class MultiViewDataset(torch.utils.data.IterableDataset):
         return self.n_pixels_per_cam // self.n_samples_per_cam
 
 
+def make_run_fwd_bwd(
+    renderer: rendering.RadianceRenderer,
+    scaler: torch.cuda.amp.GradScaler,
+    n_acc_steps: int,
+):
+    # https://pytorch.org/docs/stable/notes/amp_examples.html#gradient-accumulation
+    def run_fwd_bwd(cam: cameras.MultiViewCamera, uv: torch.Tensor, rgba: torch.Tensor):
+        B, N, M, C = rgba.shape
+
+        with torch.cuda.amp.autocast(enabled=scaler.is_enabled()):
+            uv = uv.permute(1, 0, 2, 3).reshape(N, B * M, 2)
+            rgba = rgba.permute(1, 0, 2, 3).reshape(N, B * M, C)
+            rgb, alpha = rgba[..., :3], rgba[..., 3:4]
+            noise = torch.empty_like(rgb).uniform_(0.5, 1.0)
+            # Dynamic noise background with alpha composition
+            # Encourages the model to learn zero density in empty regions
+            # Dynamic background is also combined with prediced colors, so
+            # model does not have to learn randomness.
+            gt_rgb_mixed = rgb * alpha + noise * (1 - alpha)
+
+            # Predict
+            pred_rgb, pred_alpha = renderer.render_uv(cam, uv, booster=10.0)
+            # Mix
+            pred_rgb_mixed = pred_rgb * pred_alpha + noise * (1 - pred_alpha)
+
+            # Loss normalized by number of accumulation steps before
+            # update
+            loss = F.mse_loss(pred_rgb_mixed, gt_rgb_mixed) / n_acc_steps
+
+        # Scale the loss
+        scaler.scale(loss).backward()
+        return loss
+
+    return run_fwd_bwd
+
+
+@torch.no_grad()
+def render_images(
+    renderer: rendering.RadianceRenderer,
+    cam: cameras.MultiViewCamera,
+    use_amp: bool,
+    n_samples_per_cam: int,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    with torch.cuda.amp.autocast(enabled=use_amp):
+        pred_color, pred_alpha = renderer.render_camera_views(
+            cam, n_samples_per_cam=n_samples_per_cam
+        )
+        pred_rgba = torch.cat((pred_color, pred_alpha), -1).permute(0, 3, 1, 2)
+    return pred_rgba
+
+
+def save_image(fname: str, rgba: torch.Tensor):
+    grid_img = (
+        (plotting.make_image_grid(rgba, checkerboard_bg=False, scale=1.0) * 255)
+        .to(torch.uint8)
+        .permute(1, 2, 0)
+        .cpu()
+        .numpy()
+    )
+    Image.fromarray(grid_img, mode="RGBA").save(fname)
+
+
 def train(
     *,
     nerf: radiance.NeRF,
+    aabb: torch.Tensor,
     train_mvs: tuple[cameras.MultiViewCamera, torch.Tensor],
     test_mvs: tuple[cameras.MultiViewCamera, torch.Tensor],
-    batch_size: int,
-    n_ray_step_samples: int = 40,
+    n_rays_batch: int,
+    n_rays_mini_batch: int,
     lr: float = 1e-2,
     max_train_secs: float = 180,
     dev: torch.device = None,
@@ -70,6 +134,7 @@ def train(
     if dev is None:
         dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     nerf = nerf.train().to(dev)
+    aabb = aabb.to(dev)
     if preload:
         train_mvs = [x.to(dev) for x in train_mvs]
         test_mvs = [x.to(dev) for x in test_mvs]
@@ -86,13 +151,19 @@ def train(
     )
 
     sched = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        opt, mode="min", factor=0.75, patience=20, min_lr=1e-6
+        opt, mode="min", factor=0.75, patience=20, min_lr=1e-4
     )
 
-    n_views = train_mvs[0].n_views
+    # compute the number of samples per cam
     n_worker = 4
-    n_samples_per_cam = train_mvs[0].size[0].item()
-    final_batch_size = max(batch_size // (n_samples_per_cam * n_views), 1)
+    n_views = train_mvs[0].n_views
+    n_acc_steps = n_rays_batch // n_rays_mini_batch
+    n_samples_per_cam = int(n_rays_mini_batch / n_views / n_worker)
+    val_interval = int(1e6 / n_rays_batch)
+    print(n_samples_per_cam, n_acc_steps, val_interval)
+
+    # n_samples_per_cam = train_mvs[0].size[0].item()
+    # final_batch_size = max(batch_size // (n_samples_per_cam * n_views), 1)
 
     train_ds = MultiViewDataset(
         camera=train_mvs[0],
@@ -103,105 +174,68 @@ def train(
     )
     train_dl = torch.utils.data.DataLoader(
         train_ds,
-        batch_size=final_batch_size,
+        batch_size=n_worker,
         num_workers=n_worker,
     )
 
-    pbar_postfix = {"loss": 0.0}
-    step = 0
-    t_start = time.time()
-    t_last_dump = time.time()
     use_amp = True
     scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
+    renderer = rendering.RadianceRenderer(nerf, aabb)
+    fwd_bwd_fn = make_run_fwd_bwd(renderer, scaler, n_acc_steps=n_acc_steps)
+
+    pbar_postfix = {"loss": 0.0}
+    t_start = time.time()
+
     while True:
         pbar = tqdm(train_dl, mininterval=0.1)
-        for (uv, color) in pbar:
-            uv = uv.to(dev)
-            color = color.to(dev)
-            train_cams = train_mvs[0].to(dev)
-            B, N, M, C = color.shape
-            # uv is (B,N,M,2) N=num cams, M=minibatch
-            # uf_features is (B,N,M,C)
+        loss_acc = 0.0
+        for idx, (uv, rgba) in enumerate(pbar):
             t_now = time.time()
+            uv = uv.to(dev)
+            rgba = rgba.to(dev)
 
-            with torch.cuda.amp.autocast(enabled=use_amp):
-                uv = uv.permute(1, 0, 2, 3).reshape(N, B * M, 2)
-                color = color.permute(1, 0, 2, 3).reshape(N, B * M, C)
-                rgb, alpha = color[..., :3], color[..., 3:4]
+            loss = fwd_bwd_fn(train_mvs[0].to(dev), uv, rgba)
+            loss_acc += loss.item()
 
-                noise = torch.empty_like(rgb).uniform_(0.0, 1.0)
-                # Dynamic noise background with alpha composition
-                # Encourages the model to learn zero density in empty regions
-                # Dynamic background is also combined with prediced colors, so
-                # model does not have to learn randomness.
-                gt_rgb_mixed = rgb * alpha + noise * (1 - alpha)
+            if (idx + 1) % n_acc_steps == 0:
+                scaler.step(opt)
+                scaler.update()
+                sched.step(loss)
+                opt.zero_grad(set_to_none=True)
 
-                pred_rgb, pred_alpha = rendering.render_radiance_field(
-                    nerf,
-                    nerf.aabb,
-                    train_cams,
-                    uv,
-                    n_ray_t_steps=n_ray_step_samples,
-                    boost_tfar=10.0,
-                    resample=False,
-                )
-                pred_rgb_mixed = pred_rgb * pred_alpha + noise * (1 - pred_alpha)
+                pbar_postfix["loss"] = loss_acc
+                pbar_postfix["lr"] = sched._last_lr[0]
+                loss_acc = 0.0
 
-                loss = F.mse_loss(pred_rgb_mixed, gt_rgb_mixed)
-
-            scaled_loss = scaler.scale(loss)
-            opt.zero_grad(set_to_none=True)
-            scaled_loss.backward()
-            scaler.step(opt)
-            scaler.update()
-            # opt.step()
-            sched.step(loss)
-            pbar_postfix["loss"] = loss.item()
-            pbar_postfix["lr"] = sched._last_lr
-            step += 1
             if (t_now - t_start) > max_train_secs:
                 return
 
-            if t_now - t_last_dump > 30:
-
-                with torch.no_grad(), torch.cuda.amp.autocast(enabled=use_amp):
-                    nerf.eval()
-                    pred_color, pred_alpha = rendering.render_camera_views(
-                        test_mvs[0].to(dev),
-                        nerf,
-                        nerf.aabb,
-                        n_ray_t_steps=n_ray_step_samples,
-                        boost_tfar=10.0,
-                        resample=False,
-                    )
-                    pred_img = torch.cat((pred_color, pred_alpha), -1).permute(
-                        0, 3, 1, 2
-                    )
-                    grid_img = (
-                        (
-                            plotting.make_image_grid(
-                                pred_img, checkerboard_bg=False, scale=1.0
-                            )
-                            * 255
-                        )
-                        .to(torch.uint8)
-                        .permute(1, 2, 0)
-                        .cpu()
-                        .numpy()
-                    )
-                    Image.fromarray(grid_img, mode="RGBA").save(
-                        f"tmp/img_raw_{int(t_now - t_start):03d}.png"
-                    )
-                    val_loss = F.mse_loss(pred_img, test_mvs[1].to(dev))
-                    pbar_postfix["val_loss"] = val_loss.item()
-                    ax = plotting.plot_image(pred_img, checkerboard_bg=True)
-                    fig = ax.get_figure()
-                    fig.savefig(f"tmp/img_{int(t_now - t_start):03d}.png")
-                    plt.close(fig)
-                    nerf.train()
-                    # plt.show()
-
-                t_last_dump = time.time()
+            if (idx + 1) % val_interval == 0:
+                render_val_cams = test_mvs[0].to(dev)
+                val_rgba = render_images(
+                    renderer,
+                    render_val_cams,
+                    use_amp=use_amp,
+                    n_samples_per_cam=n_rays_mini_batch // render_val_cams.n_views,
+                )
+                save_image(
+                    f"tmp/img_val_step={idx}_elapsed={int(t_now - t_start):03d}.png",
+                    val_rgba,
+                )
+                render_train_cams = train_mvs[0][:2].to(dev)
+                train_rgba = render_images(
+                    renderer,
+                    render_train_cams,
+                    use_amp=use_amp,
+                    n_samples_per_cam=n_rays_mini_batch // render_train_cams.n_views,
+                )
+                save_image(
+                    f"tmp/img_train_step={idx}_elapsed={int(t_now - t_start):03d}.png",
+                    train_rgba,
+                )
+                # TODO:this is a different loss than in training
+                val_loss = F.mse_loss(val_rgba[:, :3], test_mvs[1].to(dev)[:, :3])
+                pbar_postfix["val_loss"] = val_loss.item()
 
             pbar.set_postfix(**pbar_postfix, refresh=False)
 
@@ -229,7 +263,7 @@ if __name__ == "__main__":
     train_mvs = camera[:-2], gt_images[:-2]
     val_mvs = camera[-2:], gt_images[-2:]
 
-    # plotting.plot_camera(camera)
+    # plotting.plot_camera(train_mvs[0])
     # plotting.plot_box(aabb)
     # plt.gca().set_aspect("equal")
     # plt.gca().autoscale()
@@ -240,7 +274,7 @@ if __name__ == "__main__":
     nerf_kwargs = dict(
         n_colors=3,
         n_hidden=64,
-        n_encodings=2**14,
+        n_encodings=2**16,
         n_levels=16,
         n_color_cond=16,
         min_res=32,
@@ -248,15 +282,16 @@ if __name__ == "__main__":
         max_n_dense=256**3,
         is_hdr=False,
     )
-    nerf = radiance.NeRF(aabb=aabb, **nerf_kwargs).to(dev)
+    nerf = radiance.NeRF(**nerf_kwargs).to(dev)
 
-    train_time = 10 * 60
+    train_time = 10 * 3600
     train(
         nerf=nerf,
+        aabb=aabb,
         train_mvs=train_mvs,
         test_mvs=val_mvs,
-        batch_size=2**14,
-        n_ray_step_samples=128,
+        n_rays_batch=2**14,
+        n_rays_mini_batch=2**14,
         lr=1e-2,
         max_train_secs=train_time,
         preload=False,

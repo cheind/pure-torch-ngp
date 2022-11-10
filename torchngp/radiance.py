@@ -12,10 +12,13 @@ from . import encoding
 class RadianceField(Protocol):
     """Protocol of a spatial radiance field.
 
-    A spatial radiance field takes positions plus optional conditioning values
-    and returns color and densities values for each location."""
+    A spatial radiance field takes normalized locations plus optional
+    conditioning values and returns color and densities values for
+    each location."""
 
-    n_color_cond: int
+    n_color_cond_dims: int
+    n_color_dims: int
+    n_density_dims: int
 
     def __call__(
         self, xyz: torch.Tensor, color_cond: Optional[torch.Tensor] = None
@@ -26,7 +29,7 @@ class RadianceField(Protocol):
         """Return features from positions.
 
         Params:
-            xyz: (N,...,3) positions in world space
+            xyz_ndc: (N,...,3) normalized device locations [-1,1]
 
         Returns:
             f: (N,...,16) feature values for each sample point
@@ -206,7 +209,6 @@ class NeRF(torch.nn.Module, RadianceField):
 
     def __init__(
         self,
-        aabb: torch.Tensor = None,
         n_colors: int = 3,
         n_hidden: int = 64,
         n_encodings: int = 2**12,
@@ -218,13 +220,10 @@ class NeRF(torch.nn.Module, RadianceField):
         is_hdr: bool = False,
     ) -> None:
         super().__init__()
-        if aabb is None:
-            aabb = torch.tensor([[-1.0] * 3, [1.0] * 3])
-        self.register_buffer("aabb", aabb)
-        self.aabb: torch.Tensor
         self.is_hdr = is_hdr
-        self.n_color_cond = n_color_cond
-        self.n_colors = n_colors
+        self.n_color_cond_dims = n_color_cond
+        self.n_color_dims = n_colors
+        self.n_density_dims = 1
         self.pos_encoder = encoding.MultiLevelHybridHashEncoding(
             n_encodings=n_encodings,
             n_input_dims=3,
@@ -256,11 +255,11 @@ class NeRF(torch.nn.Module, RadianceField):
             torch.nn.Linear(n_hidden, n_colors),
         )
 
-        # torch.nn.init.constant_(self.density_mlp[-1].bias[:1], math.log(1e-3))
+        torch.nn.init.constant_(self.density_mlp[-1].bias[:1], -1.0)
 
         # print(sum(param.numel() for param in self.parameters()))
 
-    def encode(self, xyz: torch.Tensor) -> torch.Tensor:
+    def encode(self, xyz_ndc: torch.Tensor) -> torch.Tensor:
         """Return features from positions.
 
         Params:
@@ -269,13 +268,10 @@ class NeRF(torch.nn.Module, RadianceField):
         Returns:
             f: (N,...,16) feature values for each sample point
         """
-        batch_shape = xyz.shape[:-1]
-
-        # Compute normalized box coords
-        xn = geometric.convert_world_to_box_normalized(xyz, self.aabb)
+        batch_shape = xyz_ndc.shape[:-1]
 
         # Compute encoder features and pass them trough density mlp.
-        xn_flat = xn.view(-1, 3)
+        xn_flat = xyz_ndc.view(-1, 3)
         h = self.pos_encoder(xn_flat)
         d = self.density_mlp(h)
 
@@ -293,7 +289,8 @@ class NeRF(torch.nn.Module, RadianceField):
 
         # We consider the first feature dimension to be the
         # log-density estimate
-        return f[..., 0:1].exp()
+        # print(f[..., 0].mean())
+        return f[..., 0 : self.n_density_dims].exp()
 
     def decode_color(
         self, f: torch.Tensor, cond: Optional[torch.Tensor] = None
@@ -317,18 +314,19 @@ class NeRF(torch.nn.Module, RadianceField):
             f = torch.cat((f, cond), -1)
 
         # Raw color prediction
-        c = self.color_mlp(f).view(batch_shape + (self.n_colors,))
+        c = self.color_mlp(f).view(batch_shape + (self.n_color_dims,))
 
         # Reparametrize
         color = c.exp() if self.is_hdr else torch.sigmoid(c)
 
         return color
 
-    def forward(self, x, color_cond: Optional[torch.Tensor] = None):
+    def forward(self, xyz_ndc, color_cond: Optional[torch.Tensor] = None):
         """Predict density and color values for sample positions.
 
         Params:
-            x: (N,...,3) sampling positions in world space
+            xyz_ndc: (N,...,3) sampling positions in normalized device coords
+                [-1,1]
             color_cond: (N,...,n_cond_color_dims) optional color
                 condititioning values
 
@@ -337,7 +335,7 @@ class NeRF(torch.nn.Module, RadianceField):
                 [0,1] otherwise
             sigma: (N,...,1) prediced density values [0,+inf]
         """
-        f = self.encode(x)
+        f = self.encode(xyz_ndc)
         sigma = self.decode_density(f)
         color = self.decode_color(f, cond=color_cond)
         return color, sigma

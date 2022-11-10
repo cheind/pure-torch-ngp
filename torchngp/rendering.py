@@ -1,5 +1,6 @@
-import math
 import torch
+import dataclasses
+from typing import Protocol
 
 from . import radiance
 from . import cameras
@@ -8,201 +9,195 @@ from . import geometric
 from .harmonics import rsh_cart_3
 
 
-def _strided_windows(n: int, batch: int, stride: int = 1):
-    for i in range(0, n, stride):
-        j = min(i + batch, n)
-        if (j - i) > 2:  # last one not needed
-            yield i, j
+class SpatialFilter(Protocol):
+    """Protocol for a spatial rendering filter.
+
+    A spatial rendering accelerator takes spatial positions in NDC format
+    and returns a mask of samples worthwile considering.
+    """
+
+    def test(self, xyz_ndc: torch.Tensor) -> torch.BoolTensor:
+        """Test given NDC locations.
+
+        Params:
+            xyz_ndc: (N,...,3) tensor of normalized [-1,1] coordinates
+
+        Returns:
+            mask: (N,...) boolean mask of the samples to be processed further
+        """
+        ...
+
+    def update(self):
+        """Update this accelerator."""
+        ...
 
 
-def render_radiance_field(
-    radiance_field: radiance.RadianceField,
-    aabb: torch.Tensor,
-    cam: cameras.MultiViewCamera,
-    uv: torch.Tensor,
-    n_ray_t_steps: int = 100,
-    boost_tfar: float = 1.0,
-    resample: bool = False,
-) -> tuple[torch.Tensor, torch.Tensor]:
+class BoundsFilter(SpatialFilter):
+    def test(self, xyz_ndc: torch.Tensor) -> torch.BoolTensor:
+        mask = ((xyz_ndc > -1.0) & (xyz_ndc < 1.0)).all(-1)
+        return mask
 
-    batch_shape = uv.shape[:-1]
-    with_harmonics = radiance_field.n_color_cond > 0
-
-    # Get world rays corresponding to pixels (N,...,3)
-    ray_origin, ray_dir, ray_tnear, ray_tfar = geometric.world_ray_from_pixel(
-        cam, uv, normalize_dirs=True
-    )
-
-    # Intersect rays with AABB
-    ray_tnear, ray_tfar = geometric.intersect_ray_aabb(
-        ray_origin, ray_dir, ray_tnear, ray_tfar, aabb
-    )
-
-    # Determine set of rays that actually intersect (N,...)
-    ray_hit = ((ray_tfar - ray_tnear) > 1e-2).squeeze(-1)
-    ray_origin = ray_origin[ray_hit]
-    ray_dir = ray_dir[ray_hit]
-    ray_tnear = ray_tnear[ray_hit]
-    ray_tfar = ray_tfar[ray_hit]
-
-    with torch.no_grad():
-        if resample:
-            # Sample ray steps (20,V,1)
-            ray_ts = sampling.sample_ray_step_stratified(
-                ray_tnear, ray_tfar, n_samples=n_ray_t_steps // 4
-            )
-            xyz = geometric.evaluate_ray(ray_origin, ray_dir, ray_ts)
-            f = radiance_field.encode(xyz)
-            sigma = radiance_field.decode_density(f)
-            log_transm = radiance.integrate_path_density(
-                sigma, torch.cat((ray_ts, boost_tfar * ray_tfar.unsqueeze(0)))
-            )
-            # T(i)*alpha(i)
-            weights = (log_transm[:-1] - log_transm[1:]).exp()
-
-            ray_ts = sampling.sample_ray_step_informed(
-                ray_ts, ray_tnear, ray_tfar, weights, n_samples=n_ray_t_steps
-            )
-
-        else:
-            # Sample ray steps (T,V,1)
-            ray_ts = sampling.sample_ray_step_stratified(
-                ray_tnear, ray_tfar, n_samples=n_ray_t_steps
-            )
-
-        ray_ynm = None
-        if with_harmonics:
-            ray_ynm = (
-                rsh_cart_3(ray_dir)
-                .unsqueeze(0)
-                .expand(ray_ts.shape[0], -1, -1)
-                .contiguous()
-            )
-
-        # Evaluate world points (T,V,3)
-        xyz = geometric.evaluate_ray(ray_origin, ray_dir, ray_ts)
-
-    # Predict radiance properties
-    color, sigma = radiance_field(xyz, color_cond=ray_ynm)
-
-    # Integrate colors along rays
-    integ_color, integ_log_transm = radiance.integrate_path(
-        color, sigma, torch.cat((ray_ts, boost_tfar * ray_tfar.unsqueeze(0)), 0)
-    )
-
-    final_alpha = 1.0 - integ_log_transm[-2].exp()
-    final_color = integ_color[-1]
-
-    if (final_alpha < 0.0).any():
-        print(integ_log_transm[-2])
-
-    out_color = color.new_zeros(batch_shape + color.shape[-1:])
-    out_alpha = sigma.new_zeros(batch_shape + (1,))
-
-    out_color[ray_hit] = final_color.to(out_color.dtype)
-    out_alpha[ray_hit] = final_alpha.to(out_alpha.dtype)
-
-    return out_color, out_alpha
+    def update(self):
+        pass
 
 
-def render_radiance_field_time_batches(
-    radiance_field: radiance.RadianceField,
-    aabb: torch.Tensor,
-    cam: cameras.MultiViewCamera,
-    uv: torch.Tensor,
-    n_ray_t_steps: int = 100,
-    boost_tfar: float = 1.0,
-) -> tuple[torch.Tensor, torch.Tensor]:
+@dataclasses.dataclass
+class RayData:
+    o: torch.Tensor
+    d: torch.Tensor
+    tnear: torch.Tensor
+    tfar: torch.Tensor
+    lengths: torch.Tensor
 
-    batch_shape = uv.shape[:-1]
+    def filter_by_mask(self, mask: torch.BoolTensor) -> "RayData":
+        return RayData(
+            o=self.o[mask],
+            d=self.d[mask],
+            tnear=self.tnear[mask],
+            tfar=self.tfar[mask],
+            lengths=self.lengths[mask],
+        )
 
-    # Output (N,...,C), (N,...,1)
-    integ_color = uv.new_zeros(batch_shape + (3,))
-    integ_log_transm = uv.new_zeros(batch_shape + (1,))
 
-    # Get world rays (N,...,3)
-    ray_origin, ray_dir, ray_tnear, ray_tfar = geometric.world_ray_from_pixel(
-        cam, uv, normalize_dirs=True  # normalize requierd for delta to be [m]
-    )
+class RadianceRenderer:
+    def __init__(
+        self,
+        radiance_field: radiance.RadianceField,
+        aabb: torch.Tensor,
+        filter: SpatialFilter = None,
+    ) -> None:
+        self.radiance_field = radiance_field
+        self.aabb = aabb
+        self.with_harmonics = radiance_field.n_color_cond_dims > 0
+        self.filter = filter or BoundsFilter()
 
-    # Intersect rays with AABB
-    ray_tnear, ray_tfar = geometric.intersect_ray_aabb(
-        ray_origin, ray_dir, ray_tnear, ray_tfar, aabb
-    )
+    def render_uv(
+        self,
+        cam: cameras.MultiViewCamera,
+        uv: torch.Tensor,
+        ray_td: float = None,
+        booster: float = 1.0,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        if ray_td is None:
+            ray_td = torch.norm(self.aabb[1] - self.aabb[0]) / 256
 
-    # Sample ray steps (T,N,...,1) and padded (T+1,N,...,1)
-    ray_ts = sampling.sample_ray_step_stratified(
-        ray_tnear, ray_tfar, n_samples=n_ray_t_steps
-    )
-    ray_ts = torch.cat((ray_ts, boost_tfar * ray_tfar.unsqueeze(0)), 0)
+        batch_shape = uv.shape[:-1]
 
-    # Ray-active mask (N,...)
-    ray_mask = ((ray_tfar - ray_tnear) > 1e-2).squeeze(-1)
-    log_transm_th = math.log(1e-5)
+        rays, ray_mask = self._compute_rays_and_mask(cam, uv)
+        rays_active = rays.filter_by_mask(ray_mask)
 
-    for ti, tj in _strided_windows(ray_ts.shape[0], 20, 20 - 1):
-
-        o = ray_origin[ray_mask]
-        d = ray_dir[ray_mask]
-        ts = ray_ts[ti:tj, ray_mask]
-
-        # Evaluate world points (T,V,3)
-        xyz = geometric.evaluate_ray(o, d, ts[:-1])
-
-        # Predict radiance properties
-        sample_color, sample_sigma = radiance_field(xyz)
+        ts = self._sample_ts(
+            rays_active, ray_lengths=rays_active.lengths, ray_td=ray_td
+        )
+        sample_color, sample_density = self._query_radiance_field(rays_active, ts)
 
         # Integrate colors along rays
-        part_color, part_log_transm = radiance.integrate_path(
+        int_color, int_logtransm = radiance.integrate_path(
             sample_color,
-            sample_sigma,
-            ts,
-            prev_log_transmittance=integ_log_transm[ray_mask],
+            sample_density,
+            torch.cat((ts, booster * rays_active.tfar.unsqueeze(0)), 0),
         )
 
-        integ_color[ray_mask] += part_color[-1].to(integ_color.dtype)
-        integ_log_transm[ray_mask] += part_log_transm[-2].to(integ_log_transm.dtype)
+        # Output (N,...,C), (N,...,1)
+        out_color = sample_color.new_zeros(batch_shape + (int_color.shape[-1],))
+        out_alpha = sample_density.new_zeros(batch_shape + (1,))
 
-        # Update ray active mask
-        ray_mask = ray_mask & (integ_log_transm > log_transm_th).detach().squeeze(-1)
+        out_color[ray_mask] = int_color[-1]
+        out_alpha[ray_mask] = 1 - int_logtransm[-2].exp()
 
-    out_color = integ_color
-    out_alpha = 1 - integ_log_transm.exp()
+        return out_color, out_alpha
 
-    return out_color, out_alpha
+    def _query_radiance_field(self, rays, ts):
+        """Query the radiance field for the given points `xyz=o + d*ts`"""
+        batch_shape = ts.shape[:-1]
+        out_color = ts.new_zeros(batch_shape + (self.radiance_field.n_color_dims,))
+        out_density = ts.new_zeros(batch_shape + (self.radiance_field.n_density_dims,))
 
+        # Evaluate world points (T,N,...,3)
+        xyz = geometric.evaluate_ray(rays.o, rays.d, ts)
 
-def render_camera_views(
-    cam: cameras.MultiViewCamera,
-    radiance_field: radiance.RadianceField,
-    aabb: torch.Tensor,
-    n_ray_t_steps: int = 100,
-    boost_tfar: float = 1.0,
-    resample: bool = False,
-) -> tuple[torch.Tensor, torch.Tensor]:
+        ray_ynm = None
+        if self.with_harmonics:
+            ray_ynm = rsh_cart_3(rays.d).unsqueeze(0).expand(ts.shape[0], -1, -1)
 
-    gen = sampling.generate_sequential_uv_samples(
-        camera=cam, image=None, n_samples_per_cam=None
-    )
+        # Convert to ndc (T,N,...,3)
+        xyz_ndc = geometric.convert_world_to_box_normalized(xyz, self.aabb)
 
-    color_parts = []
-    alpha_parts = []
-    for uv, _ in gen:
-        color, alpha = render_radiance_field(
-            radiance_field,
-            aabb,
-            cam,
-            uv,
-            n_ray_t_steps=n_ray_t_steps,
-            boost_tfar=boost_tfar,
-            resample=resample,
+        # Filter (T,N,...)
+        mask = self.filter.test(xyz_ndc)
+
+        # (V,3)
+        xyz_ndc_masked = xyz_ndc[mask]
+        if self.with_harmonics:
+            ray_ynm = ray_ynm[mask]
+
+        # Predict for filtered locations
+        color, density = self.radiance_field(xyz_ndc_masked, color_cond=ray_ynm)
+
+        out_color[mask] = color.to(out_color.dtype)
+        out_density[mask] = density.to(density.dtype)
+        return out_color, out_density
+
+    @torch.no_grad()
+    def _compute_rays_and_mask(
+        self, cam: cameras.MultiViewCamera, uv: torch.Tensor
+    ) -> tuple[RayData, torch.BoolTensor]:
+        # Get world rays (N,...,3)
+        ray_origin, ray_dir, ray_tnear, ray_tfar = geometric.world_ray_from_pixel(
+            cam, uv, normalize_dirs=True
         )
-        color_parts.append(color)
-        alpha_parts.append(alpha)
 
-    N = cam.n_views
-    C = color_parts[0].shape[-1]
-    W, H = cam.size
-    color = torch.cat(color_parts, 1).view(N, H, W, C)
-    alpha = torch.cat(alpha_parts, 1).view(N, H, W, 1)
-    return color, alpha
+        # Intersect rays with AABB
+        ray_tnear, ray_tfar = geometric.intersect_ray_aabb(
+            ray_origin, ray_dir, ray_tnear, ray_tfar, self.aabb
+        )
+
+        ray_lengths = ray_tfar - ray_tnear
+        ray_mask = (ray_lengths > 1e-2).squeeze(-1)
+
+        return (
+            RayData(
+                o=ray_origin,
+                d=ray_dir,
+                tnear=ray_tnear,
+                tfar=ray_tfar,
+                lengths=ray_lengths,
+            ),
+            ray_mask,
+        )
+
+    def _sample_ts(
+        self, rays: RayData, ray_lengths: torch.Tensor, ray_td: float
+    ) -> torch.Tensor:
+        max_length = max(ray_lengths.max().item(), 0.0)
+        n_samples = int(max_length / ray_td)
+
+        return sampling.sample_ray_step_stratified(rays.tnear, rays.tfar, n_samples=512)
+
+        # return sampling.sample_ray_fixed_step_stratified(
+        #     rays.tnear, stepsize=ray_td, n_samples=n_samples
+        # )
+
+    def render_camera_views(
+        self,
+        cam: cameras.MultiViewCamera,
+        n_samples_per_cam: int = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+
+        gen = sampling.generate_sequential_uv_samples(
+            camera=cam, image=None, n_samples_per_cam=n_samples_per_cam
+        )
+
+        color_parts = []
+        alpha_parts = []
+        for uv, _ in gen:
+            color, alpha = self.render_uv(cam, uv)
+            color_parts.append(color)
+            alpha_parts.append(alpha)
+
+        N = cam.n_views
+        C = color_parts[0].shape[-1]
+        W, H = cam.size
+        color = torch.cat(color_parts, 1).view(N, H, W, C)
+        alpha = torch.cat(alpha_parts, 1).view(N, H, W, 1)
+        return color, alpha
