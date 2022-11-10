@@ -64,24 +64,22 @@ class RadianceRenderer:
         self,
         radiance_field: radiance.RadianceField,
         aabb: torch.Tensor,
-        cam: cameras.MultiViewCamera,
         filter: SpatialFilter = None,
     ) -> None:
         self.radiance_field = radiance_field
         self.aabb = aabb
-        self.cam = cam
         self.with_harmonics = radiance_field.n_color_cond_dims > 0
         self.filter = filter or BoundsFilter()
 
     def render_uv(
-        self, uv: torch.Tensor, ray_td: float = None
+        self, cam: cameras.MultiViewCamera, uv: torch.Tensor, ray_td: float = None
     ) -> tuple[torch.Tensor, torch.Tensor]:
         if ray_td is None:
             ray_td = torch.norm(self.aabb[1] - self.aabb[0]) / 256
 
         batch_shape = uv.shape[:-1]
 
-        rays, ray_mask = self._compute_rays_and_mask(uv)
+        rays, ray_mask = self._compute_rays_and_mask(cam, uv)
         rays_active = rays.filter_by_mask(ray_mask)
 
         ts = self._sample_ts(
@@ -138,11 +136,11 @@ class RadianceRenderer:
 
     @torch.no_grad()
     def _compute_rays_and_mask(
-        self, uv: torch.Tensor
+        self, cam: cameras.MultiViewCamera, uv: torch.Tensor
     ) -> tuple[RayData, torch.BoolTensor]:
         # Get world rays (N,...,3)
         ray_origin, ray_dir, ray_tnear, ray_tfar = geometric.world_ray_from_pixel(
-            self.cam, uv, normalize_dirs=True
+            cam, uv, normalize_dirs=True
         )
 
         # Intersect rays with AABB
@@ -170,57 +168,30 @@ class RadianceRenderer:
         max_length = max(ray_lengths.max().item(), 0.0)
         n_samples = int(max_length / ray_td)
 
-        return sampling.sample_ray_step_stratified(rays.tnear, rays.tfar, n_samples=80)
+        return sampling.sample_ray_step_stratified(rays.tnear, rays.tfar, n_samples=128)
 
         # return sampling.sample_ray_fixed_step_stratified(
         #     rays.tnear, stepsize=ray_td, n_samples=n_samples
         # )
 
-    def render_camera_views(self) -> tuple[torch.Tensor, torch.Tensor]:
+    def render_camera_views(
+        self, cam: cameras.MultiViewCamera
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+
         gen = sampling.generate_sequential_uv_samples(
-            camera=self.cam, image=None, n_samples_per_cam=None
+            camera=cam, image=None, n_samples_per_cam=None
         )
 
         color_parts = []
         alpha_parts = []
         for uv, _ in gen:
-            color, alpha = self.render_uv(uv)
+            color, alpha = self.render_uv(cam, uv)
             color_parts.append(color)
             alpha_parts.append(alpha)
 
-        N = self.cam.n_views
+        N = cam.n_views
         C = color_parts[0].shape[-1]
-        W, H = self.cam.size
+        W, H = cam.size
         color = torch.cat(color_parts, 1).view(N, H, W, C)
         alpha = torch.cat(alpha_parts, 1).view(N, H, W, 1)
         return color, alpha
-
-
-def render_camera_views(
-    cam: cameras.MultiViewCamera,
-    radiance_field: radiance.RadianceField,
-    aabb: torch.Tensor,
-    n_ray_t_steps: int = 100,
-    boost_tfar: float = 1.0,
-    resample: bool = False,
-) -> tuple[torch.Tensor, torch.Tensor]:
-
-    gen = sampling.generate_sequential_uv_samples(
-        camera=cam, image=None, n_samples_per_cam=None
-    )
-
-    rnd = RadianceRenderer(radiance_field, aabb, cam)
-
-    color_parts = []
-    alpha_parts = []
-    for uv, _ in gen:
-        color, alpha = rnd.render_uv(uv)
-        color_parts.append(color)
-        alpha_parts.append(alpha)
-
-    N = cam.n_views
-    C = color_parts[0].shape[-1]
-    W, H = cam.size
-    color = torch.cat(color_parts, 1).view(N, H, W, C)
-    alpha = torch.cat(alpha_parts, 1).view(N, H, W, 1)
-    return color, alpha
