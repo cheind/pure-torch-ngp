@@ -69,7 +69,7 @@ def make_run_fwd_bwd(
             uv = uv.permute(1, 0, 2, 3).reshape(N, B * M, 2)
             rgba = rgba.permute(1, 0, 2, 3).reshape(N, B * M, C)
             rgb, alpha = rgba[..., :3], rgba[..., 3:4]
-            noise = torch.empty_like(rgb).uniform_(0.0, 1.0)
+            noise = torch.empty_like(rgb).uniform_(0.5, 1.0)
             # Dynamic noise background with alpha composition
             # Encourages the model to learn zero density in empty regions
             # Dynamic background is also combined with prediced colors, so
@@ -77,7 +77,7 @@ def make_run_fwd_bwd(
             gt_rgb_mixed = rgb * alpha + noise * (1 - alpha)
 
             # Predict
-            pred_rgb, pred_alpha = renderer.render_uv(cam, uv)
+            pred_rgb, pred_alpha = renderer.render_uv(cam, uv, booster=10.0)
             # Mix
             pred_rgb_mixed = pred_rgb * pred_alpha + noise * (1 - pred_alpha)
 
@@ -104,7 +104,7 @@ def render_images(
     return pred_rgba
 
 
-def save_image(rgba: torch.Tensor, elapsed: float, prefix: str = "img_raw_"):
+def save_image(fname: str, rgba: torch.Tensor):
     grid_img = (
         (plotting.make_image_grid(rgba, checkerboard_bg=False, scale=1.0) * 255)
         .to(torch.uint8)
@@ -112,7 +112,7 @@ def save_image(rgba: torch.Tensor, elapsed: float, prefix: str = "img_raw_"):
         .cpu()
         .numpy()
     )
-    Image.fromarray(grid_img, mode="RGBA").save(f"tmp/{prefix}{int(elapsed):03d}.png")
+    Image.fromarray(grid_img, mode="RGBA").save(fname)
 
 
 def train(
@@ -156,7 +156,8 @@ def train(
     n_views = train_mvs[0].n_views
     n_acc_steps = n_rays_batch // n_rays_mini_batch
     n_samples_per_cam = int(n_rays_mini_batch / n_views / n_worker)
-    print(n_samples_per_cam, n_acc_steps)
+    val_interval = int(1e6 / n_rays_batch)
+    print(n_samples_per_cam, n_acc_steps, val_interval)
 
     # n_samples_per_cam = train_mvs[0].size[0].item()
     # final_batch_size = max(batch_size // (n_samples_per_cam * n_views), 1)
@@ -181,7 +182,6 @@ def train(
 
     pbar_postfix = {"loss": 0.0}
     t_start = time.time()
-    t_last_dump = time.time()
 
     while True:
         pbar = tqdm(train_dl, mininterval=0.1)
@@ -207,19 +207,22 @@ def train(
             if (t_now - t_start) > max_train_secs:
                 return
 
-            if t_now - t_last_dump > 30:
+            if (idx + 1) % val_interval == 0:
                 val_rgba = render_images(renderer, test_mvs[0].to(dev), use_amp=use_amp)
-                save_image(val_rgba, t_now - t_start, prefix="img_val_raw_")
-
+                save_image(
+                    f"tmp/img_val_step={idx}_elapsed={int(t_now - t_start):03d}.png",
+                    val_rgba,
+                )
                 train_rgba = render_images(
                     renderer, train_mvs[0][:2].to(dev), use_amp=use_amp
                 )
-                save_image(train_rgba, t_now - t_start, prefix="img_train_raw_")
-
-                val_loss = F.mse_loss(val_rgba, test_mvs[1].to(dev))
-
+                save_image(
+                    f"tmp/img_train_step={idx}_elapsed={int(t_now - t_start):03d}.png",
+                    train_rgba,
+                )
+                # TODO:this is a different loss than in training
+                val_loss = F.mse_loss(val_rgba[:, :3], test_mvs[1].to(dev)[:, :3])
                 pbar_postfix["val_loss"] = val_loss.item()
-                t_last_dump = time.time()
 
             pbar.set_postfix(**pbar_postfix, refresh=False)
 

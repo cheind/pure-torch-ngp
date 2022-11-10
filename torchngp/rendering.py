@@ -72,7 +72,11 @@ class RadianceRenderer:
         self.filter = filter or BoundsFilter()
 
     def render_uv(
-        self, cam: cameras.MultiViewCamera, uv: torch.Tensor, ray_td: float = None
+        self,
+        cam: cameras.MultiViewCamera,
+        uv: torch.Tensor,
+        ray_td: float = None,
+        booster: float = 1.0,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         if ray_td is None:
             ray_td = torch.norm(self.aabb[1] - self.aabb[0]) / 256
@@ -91,7 +95,7 @@ class RadianceRenderer:
         int_color, int_logtransm = radiance.integrate_path(
             sample_color,
             sample_density,
-            torch.cat((ts, 10 * rays_active.tfar.unsqueeze(0)), 0),
+            torch.cat((ts, booster * rays_active.tfar.unsqueeze(0)), 0),
         )
 
         # Output (N,...,C), (N,...,1)
@@ -168,7 +172,7 @@ class RadianceRenderer:
         max_length = max(ray_lengths.max().item(), 0.0)
         n_samples = int(max_length / ray_td)
 
-        return sampling.sample_ray_step_stratified(rays.tnear, rays.tfar, n_samples=128)
+        return sampling.sample_ray_step_stratified(rays.tnear, rays.tfar, n_samples=512)
 
         # return sampling.sample_ray_fixed_step_stratified(
         #     rays.tnear, stepsize=ray_td, n_samples=n_samples
