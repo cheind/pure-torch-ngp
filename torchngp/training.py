@@ -97,9 +97,12 @@ def render_images(
     renderer: rendering.RadianceRenderer,
     cam: cameras.MultiViewCamera,
     use_amp: bool,
+    n_samples_per_cam: int,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     with torch.cuda.amp.autocast(enabled=use_amp):
-        pred_color, pred_alpha = renderer.render_camera_views(cam)
+        pred_color, pred_alpha = renderer.render_camera_views(
+            cam, n_samples_per_cam=n_samples_per_cam
+        )
         pred_rgba = torch.cat((pred_color, pred_alpha), -1).permute(0, 3, 1, 2)
     return pred_rgba
 
@@ -208,13 +211,23 @@ def train(
                 return
 
             if (idx + 1) % val_interval == 0:
-                val_rgba = render_images(renderer, test_mvs[0].to(dev), use_amp=use_amp)
+                render_val_cams = test_mvs[0].to(dev)
+                val_rgba = render_images(
+                    renderer,
+                    render_val_cams,
+                    use_amp=use_amp,
+                    n_samples_per_cam=n_rays_mini_batch // render_val_cams.n_views,
+                )
                 save_image(
                     f"tmp/img_val_step={idx}_elapsed={int(t_now - t_start):03d}.png",
                     val_rgba,
                 )
+                render_train_cams = train_mvs[0][:2].to(dev)
                 train_rgba = render_images(
-                    renderer, train_mvs[0][:2].to(dev), use_amp=use_amp
+                    renderer,
+                    render_train_cams,
+                    use_amp=use_amp,
+                    n_samples_per_cam=n_rays_mini_batch // render_train_cams.n_views,
                 )
                 save_image(
                     f"tmp/img_train_step={idx}_elapsed={int(t_now - t_start):03d}.png",

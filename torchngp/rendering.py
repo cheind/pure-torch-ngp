@@ -179,11 +179,13 @@ class RadianceRenderer:
         # )
 
     def render_camera_views(
-        self, cam: cameras.MultiViewCamera
+        self,
+        cam: cameras.MultiViewCamera,
+        n_samples_per_cam: int = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
 
         gen = sampling.generate_sequential_uv_samples(
-            camera=cam, image=None, n_samples_per_cam=None
+            camera=cam, image=None, n_samples_per_cam=n_samples_per_cam
         )
 
         color_parts = []
