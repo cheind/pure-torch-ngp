@@ -58,6 +58,7 @@ class MultiViewDataset(torch.utils.data.IterableDataset):
 def train(
     *,
     nerf: radiance.NeRF,
+    aabb: torch.Tensor,
     train_mvs: tuple[cameras.MultiViewCamera, torch.Tensor],
     test_mvs: tuple[cameras.MultiViewCamera, torch.Tensor],
     batch_size: int,
@@ -70,6 +71,7 @@ def train(
     if dev is None:
         dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     nerf = nerf.train().to(dev)
+    aabb = aabb.to(dev)
     if preload:
         train_mvs = [x.to(dev) for x in train_mvs]
         test_mvs = [x.to(dev) for x in test_mvs]
@@ -139,7 +141,7 @@ def train(
                 # model does not have to learn randomness.
                 gt_rgb_mixed = rgb * alpha + noise * (1 - alpha)
 
-                rnd = rendering.RadianceRenderer(nerf, nerf.aabb, train_cams)
+                rnd = rendering.RadianceRenderer(nerf, aabb, train_cams)
                 pred_rgb, pred_alpha = rnd.render_uv(uv, ray_tbatch=n_t_batch)
 
                 # pred_rgb, pred_alpha = rendering.render_radiance_field(
@@ -167,14 +169,14 @@ def train(
             if (t_now - t_start) > max_train_secs:
                 return
 
-            if t_now - t_last_dump > 5 * 60:
+            if t_now - t_last_dump > 30:
 
                 with torch.no_grad(), torch.cuda.amp.autocast(enabled=use_amp):
                     nerf.eval()
                     pred_color, pred_alpha = rendering.render_camera_views(
                         test_mvs[0].to(dev),
                         nerf,
-                        nerf.aabb,
+                        aabb,
                         n_ray_t_steps=n_ray_step_samples,
                         boost_tfar=1,
                         resample=False,
@@ -218,21 +220,21 @@ if __name__ == "__main__":
     torch.multiprocessing.set_start_method("spawn")
 
     dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    camera_train, aabb, gt_images_train = load_scene_from_json(
-        "./data/lego/transforms_train.json", load_images=True
-    )
-    camera_val, _, gt_images_val = load_scene_from_json(
-        "./data/lego/transforms_val.json", load_images=True
-    )
-    train_mvs = (camera_train, gt_images_train)
-    val_mvs = (camera_val[:3], gt_images_val[:3])
-
-    # camera, aabb, gt_images = load_scene_from_json(
-    #     "./data/suzanne/transforms.json", load_images=True
+    # camera_train, aabb, gt_images_train = load_scene_from_json(
+    #     "./data/lego/transforms_train.json", load_images=True
     # )
+    # camera_val, _, gt_images_val = load_scene_from_json(
+    #     "./data/lego/transforms_val.json", load_images=True
+    # )
+    # train_mvs = (camera_train, gt_images_train)
+    # val_mvs = (camera_val[:3], gt_images_val[:3])
 
-    # train_mvs = camera[:-2], gt_images[:-2]
-    # val_mvs = camera[-2:], gt_images[-2:]
+    camera, aabb, gt_images = load_scene_from_json(
+        "./data/suzanne/transforms.json", load_images=True
+    )
+
+    train_mvs = camera[:-2], gt_images[:-2]
+    val_mvs = camera[-2:], gt_images[-2:]
 
     # plotting.plot_camera(train_mvs[0])
     # plotting.plot_box(aabb)
@@ -245,19 +247,20 @@ if __name__ == "__main__":
     nerf_kwargs = dict(
         n_colors=3,
         n_hidden=64,
-        n_encodings=2**16,
-        n_levels=32,
+        n_encodings=2**14,
+        n_levels=16,
         n_color_cond=16,
         min_res=32,
-        max_res=2048,  # can now specify much larger resolutions due to hybrid approach
-        max_n_dense=128**3,
+        max_res=512,  # can now specify much larger resolutions due to hybrid approach
+        max_n_dense=256**3,
         is_hdr=False,
     )
-    nerf = radiance.NeRF(aabb=aabb, **nerf_kwargs).to(dev)
+    nerf = radiance.NeRF(**nerf_kwargs).to(dev)
 
     train_time = 10 * 3600
     train(
         nerf=nerf,
+        aabb=aabb,
         train_mvs=train_mvs,
         test_mvs=val_mvs,
         batch_size=2**18,
