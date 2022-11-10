@@ -180,7 +180,9 @@ def train(
 
     use_amp = True
     scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
-    renderer = rendering.RadianceRenderer(nerf, aabb)
+    # accel = rendering.OccupancyGridFilter(nerf, dev=dev)
+    accel = rendering.OccupancyGridFilter(nerf, dev=dev)
+    renderer = rendering.RadianceRenderer(nerf, aabb, accel)
     fwd_bwd_fn = make_run_fwd_bwd(renderer, scaler, n_acc_steps=n_acc_steps)
 
     pbar_postfix = {"loss": 0.0}
@@ -237,6 +239,7 @@ def train(
                 val_loss = F.mse_loss(val_rgba[:, :3], test_mvs[1].to(dev)[:, :3])
                 pbar_postfix["val_loss"] = val_loss.item()
 
+            accel.update(idx)
             pbar.set_postfix(**pbar_postfix, refresh=False)
 
 
