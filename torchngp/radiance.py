@@ -255,7 +255,7 @@ class NeRF(torch.nn.Module, RadianceField):
             torch.nn.Linear(n_hidden, n_colors),
         )
 
-        # torch.nn.init.constant_(self.density_mlp[-1].bias[:1], math.log(1e-3))
+        torch.nn.init.constant_(self.density_mlp[-1].bias[:1], -1.0)
 
         # print(sum(param.numel() for param in self.parameters()))
 
@@ -289,6 +289,7 @@ class NeRF(torch.nn.Module, RadianceField):
 
         # We consider the first feature dimension to be the
         # log-density estimate
+        # print(f[..., 0].mean())
         return f[..., 0 : self.n_density_dims].exp()
 
     def decode_color(
