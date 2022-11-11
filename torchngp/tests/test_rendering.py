@@ -26,15 +26,15 @@ def test_render_volume_stratified():
         tfar=10.0,
     )
 
+    rdr = rendering.RadianceRenderer(rf, aabb)
+
     torch.random.manual_seed(123)
-    color, alpha = rendering.render_radiance_field(
-        rf, aabb, cam, cam.make_uv_grid(), n_ray_t_steps=200
-    )
+    color, alpha = rdr.render_uv(cam, cam.make_uv_grid())
     img = torch.cat((color, alpha), -1)
 
-    import matplotlib.pyplot as plt
-
     # TODO: test this
+    # import matplotlib.pyplot as plt
+
     # plt.imshow(img.squeeze(0))
     # plt.show()
 
@@ -43,9 +43,7 @@ def test_render_volume_stratified():
 
     torch.random.manual_seed(123)
     for uv, _ in sampling.generate_sequential_uv_samples(cam):
-        color, alpha = rendering.render_radiance_field(
-            rf, aabb, cam, uv, n_ray_t_steps=200
-        )
+        color, alpha = rdr.render_uv(cam, uv)
         color_parts.append(color)
         alpha_parts.append(alpha)
 
