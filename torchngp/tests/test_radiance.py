@@ -11,41 +11,53 @@ class ColorGradientRadianceField(radiance.RadianceField):
 
     def __init__(
         self,
-        aabb: torch.Tensor,
-        surface_pos: float = 0.2,  # absolute x-pos
+        surface_pos: float = 0.2,  # x-pos in ndc [-1,1]
         surface_dim: int = 0,  # if zero, plane normal parallel to x
         density_scale: float = 1.0,
         cmap: str = "gray",
     ):
-        self.aabb = aabb
         self.cmap = mpl.colormaps[cmap]
-        self.surface_pos = (surface_pos - aabb[0, surface_dim]) / (
-            aabb[1, surface_dim] - aabb[0, surface_dim]
-        )
         self.surface_dim = surface_dim
         self.density_scale = density_scale
-        self.n_color_cond = 0  # unsupported
+        self.surface_pos = (surface_pos + 1.0) * 0.5
+        self.n_color_cond_dims = 0  # unsupported
+        self.n_color_dims = 3
+        self.n_density_dims = 1
 
-    def __call__(
-        self, xyz: torch.Tensor, color_cond: Optional[torch.Tensor] = None
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        del color_cond
-        dtype = xyz.dtype
-        nxyz = geometric.convert_world_to_box_normalized(xyz, self.aabb)
-        nxyz = (nxyz + 1.0) * 0.5
+    def encode(self, xyz: torch.Tensor) -> torch.Tensor:
+        return (xyz + 1.0) * 0.5  # use [0,1] here to match colormap
 
-        # Colors (N,...,3)
-        colors = self.cmap(nxyz[..., self.surface_dim].cpu().numpy())
-        colors = torch.tensor(colors[..., :3])
-        colors = colors.to(dtype)
-
-        # Density (N,...,1)
+    def decode_density(self, f: torch.Tensor) -> torch.Tensor:
+        nxyz = f
         density = nxyz[..., self.surface_dim : self.surface_dim + 1] - self.surface_pos
 
         mask = density < 0
         density[mask] = 0.0
         density[~mask] *= self.density_scale
-        return colors, density
+
+        return density
+
+    def decode_color(
+        self, f: torch.Tensor, cond: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        del cond
+        nxyz = f
+
+        # Colors (N,...,3)
+        colors = self.cmap(nxyz[..., self.surface_dim].cpu().numpy())
+        colors = torch.tensor(colors[..., :3])
+        colors = colors.to(nxyz.dtype)
+
+        return colors
+
+    def __call__(
+        self, nxyz: torch.Tensor, color_cond: Optional[torch.Tensor] = None
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+
+        f = self.encode(nxyz)
+        density = self.decode_density(f)
+        color = self.decode_color(f)
+        return color, density
 
 
 def test_radiance_integrate_path():
@@ -55,26 +67,27 @@ def test_radiance_integrate_path():
     ts = torch.linspace(0, 1, 100).view(100, 1, 1)
     xyz = geometric.evaluate_ray(o, d, ts)  # (100,1,3)
 
+    aabb = torch.Tensor([[0.0] * 3, [1.0] * 3])
+    nxyz = geometric.convert_world_to_box_normalized(xyz, aabb)
+
     rf = ColorGradientRadianceField(
-        aabb=torch.Tensor([[0.0] * 3, [1.0] * 3]),
-        surface_pos=0.2,
+        surface_pos=0.2 * 2 - 1,
         density_scale=float("inf"),  # hard surface boundary
         cmap="gray",
     )
 
     ts_padded = torch.cat((ts, torch.tensor(1.0).view(1, 1, 1)), 0)
-    color, density = rf(xyz)
+    color, density = rf(nxyz)
     out_colors, log_transmittance = radiance.integrate_path(color, density, ts_padded)
     assert_close(out_colors[-1], torch.tensor([[0.2, 0.2, 0.2]]))
 
     # Test soft transit and move plane
     rf = ColorGradientRadianceField(
-        aabb=torch.Tensor([[0.0] * 3, [1.0] * 3]),
-        surface_pos=0.5,
+        surface_pos=0.5 * 2 - 1,
         density_scale=1000.0,  # soft surface boundary
         cmap="gray",
     )
-    color, density = rf(xyz)
+    color, density = rf(nxyz)
     out_colors, log_transmittance = radiance.integrate_path(
         color, density, ts_padded, 0
     )
@@ -125,9 +138,9 @@ def test_radiance_integrate_path_in_parts():
 
 
 def test_radiance_rasterize_field():
+
     rf = ColorGradientRadianceField(
-        aabb=torch.Tensor([[0.0] * 3, [1.0] * 3]),
-        surface_pos=0.5,
+        surface_pos=0.5 * 2 - 1,
         surface_dim=0,
         density_scale=float("inf"),  # hard surface boundary
         cmap="gray",
@@ -135,7 +148,7 @@ def test_radiance_rasterize_field():
 
     # Note, rasterization is not the same as integration
     # We only query the volume at particular locations
-    color, sigma = radiance.rasterize_field(rf, rf.aabb, resolution=(2, 2, 2))
+    color, sigma = radiance.rasterize_field(rf, resolution=(2, 2, 2))
     assert color.shape == (2, 2, 2, 3)
     assert sigma.shape == (2, 2, 2, 1)
 
@@ -151,7 +164,6 @@ def test_radiance_rasterize_field():
 @torch.no_grad()
 def test_radiance_nerf_module():
     nerf = radiance.NeRF(
-        aabb=torch.Tensor([[-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]]),
         n_colors=3,
         n_hidden=16,
         n_encodings=2**8,

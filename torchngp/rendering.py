@@ -6,39 +6,8 @@ from . import radiance
 from . import cameras
 from . import sampling
 from . import geometric
+from . import filtering
 from .harmonics import rsh_cart_3
-
-
-class SpatialFilter(Protocol):
-    """Protocol for a spatial rendering filter.
-
-    A spatial rendering accelerator takes spatial positions in NDC format
-    and returns a mask of samples worthwile considering.
-    """
-
-    def test(self, xyz_ndc: torch.Tensor) -> torch.BoolTensor:
-        """Test given NDC locations.
-
-        Params:
-            xyz_ndc: (N,...,3) tensor of normalized [-1,1] coordinates
-
-        Returns:
-            mask: (N,...) boolean mask of the samples to be processed further
-        """
-        ...
-
-    def update(self):
-        """Update this accelerator."""
-        ...
-
-
-class BoundsFilter(SpatialFilter):
-    def test(self, xyz_ndc: torch.Tensor) -> torch.BoolTensor:
-        mask = ((xyz_ndc > -1.0) & (xyz_ndc < 1.0)).all(-1)
-        return mask
-
-    def update(self):
-        pass
 
 
 @dataclasses.dataclass
@@ -64,12 +33,12 @@ class RadianceRenderer:
         self,
         radiance_field: radiance.RadianceField,
         aabb: torch.Tensor,
-        filter: SpatialFilter = None,
+        filter: filtering.SpatialFilter = None,
     ) -> None:
         self.radiance_field = radiance_field
         self.aabb = aabb
         self.with_harmonics = radiance_field.n_color_cond_dims > 0
-        self.filter = filter or BoundsFilter()
+        self.filter = filter or filtering.BoundsFilter()
 
     def render_uv(
         self,
