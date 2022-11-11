@@ -148,7 +148,7 @@ def integrate_path(
     log_transm = integrate_path_density(sigma=sigma, ts=ts)  # (T+1,N,...,1)
     total_transm = (prev_log_transmittance + log_transm).exp()
 
-    # T(i)*alpha(i)
+    # T(i)*alpha(i) when multiplied equals the following
     weights = total_transm[:-1] - total_transm[1:]  # (T,N,...,1)
 
     integrated_colors = (weights * color).cumsum(0)
