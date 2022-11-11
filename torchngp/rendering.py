@@ -41,21 +41,21 @@ class RadianceRenderer:
             active_rays.tnear, active_rays.tfar, n_samples=128
         )  # TODO: in sample consider that we are not having normalized dirs
 
-        sample_color, sample_density = self._query_radiance_field(active_rays, ts)
+        ts_color, ts_density = self._query_radiance_field(active_rays, ts)
 
         # Integrate colors along rays
-        int_color, int_logtransm = radiance.integrate_path(
-            sample_color,
-            sample_density,
-            torch.cat((ts, booster * active_rays.tfar.unsqueeze(0)), 0),
+        ts_weights = radiance.integrate_timesteps(
+            ts_density, ts, active_rays.dnorm, tfinal=active_rays.tfar * booster
         )
+        ts_final_color = radiance.color_map(ts_color, ts_weights)
+        ts_final_alpha = radiance.alpha_map(ts_weights)
 
         # Output (N,...,C), (N,...,1)
-        out_color = sample_color.new_zeros(batch_shape + (int_color.shape[-1],))
-        out_alpha = sample_density.new_zeros(batch_shape + (1,))
+        out_color = ts_color.new_zeros(batch_shape + (ts_final_color.shape[-1],))
+        out_alpha = ts_density.new_zeros(batch_shape + (1,))
 
-        out_color[active_mask] = int_color[-1]
-        out_alpha[active_mask] = 1 - int_logtransm[-2].exp()
+        out_color[active_mask] = ts_final_color
+        out_alpha[active_mask] = ts_final_alpha
 
         return out_color, out_alpha
 
@@ -89,12 +89,6 @@ class RadianceRenderer:
         out_color[mask] = color.to(out_color.dtype)
         out_density[mask] = density.to(density.dtype)
         return out_color, out_density
-
-    def _sample_ts(self, rays: geometric.RayBundle) -> torch.Tensor:
-        # max_length = max(ray_lengths.max().item(), 0.0)
-        # n_samples = int(max_length / ray_td)
-
-        return sampling.sample_ray_step_stratified(rays.tnear, rays.tfar, n_samples=128)
 
     def render_camera_views(
         self,
