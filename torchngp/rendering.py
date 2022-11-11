@@ -6,100 +6,8 @@ from . import radiance
 from . import cameras
 from . import sampling
 from . import geometric
+from . import filtering
 from .harmonics import rsh_cart_3
-
-
-class SpatialFilter(Protocol):
-    """Protocol for a spatial rendering filter.
-
-    A spatial rendering accelerator takes spatial positions in NDC format
-    and returns a mask of samples worthwile considering.
-    """
-
-    def test(self, xyz_ndc: torch.Tensor) -> torch.BoolTensor:
-        """Test given NDC locations.
-
-        Params:
-            xyz_ndc: (N,...,3) tensor of normalized [-1,1] coordinates
-
-        Returns:
-            mask: (N,...) boolean mask of the samples to be processed further
-        """
-        ...
-
-    def update(self, global_step: int):
-        """Update this accelerator."""
-        ...
-
-
-class BoundsFilter(SpatialFilter):
-    def test(self, xyz_ndc: torch.Tensor) -> torch.BoolTensor:
-        mask = ((xyz_ndc > -1.0) & (xyz_ndc < 1.0)).all(-1)
-        return mask
-
-    def update(self, global_step: int):
-        pass
-
-
-class OccupancyGridFilter(BoundsFilter):
-    def __init__(
-        self,
-        rf: radiance.RadianceField,
-        res: int = 64,
-        update_interval: int = 16,
-        decay: float = 0.7,
-        density_initial=0.02,
-        density_threshold=0.01,
-        selection_rate=0.25,
-        dev: torch.device = None,
-    ) -> None:
-        super().__init__()
-        self.rf = rf
-        self.res = res
-        self.update_interval = update_interval
-        self.decay = decay
-        self.density_initial = density_initial
-        self.denity_threshold = density_threshold
-        self.selection_rate = selection_rate
-        self.dev = dev
-        self.grid = torch.full((res, res, res), density_initial, device=dev)
-        self.grid_mask = self.grid > density_threshold
-
-    def test(self, xyz_ndc: torch.Tensor) -> torch.BoolTensor:
-        mask = super().test(xyz_ndc)
-
-        ijk = (xyz_ndc + 1) * self.res * 0.5 - 0.5
-        ijk = torch.trunc(ijk).long()
-
-        ijk_valid = ijk[mask]
-        ijk_mask = self.grid_mask[ijk_valid[:, 0], ijk_valid[:, 1], ijk_valid[:, 2]]
-
-        out_mask = mask.clone()
-        out_mask[mask] &= ijk_mask
-
-        return out_mask
-
-    @torch.no_grad()
-    def update(self, global_step: int):
-        if (global_step + 1) % self.update_interval > 0:
-            return
-
-        self.grid *= self.decay
-
-        M = int(self.selection_rate * self.res**3)
-        print(M)
-        noise_scale = 2.0 / self.res - 1e-2
-        ijk = torch.randint(0, self.res, size=(M, 3), device=self.dev)
-        xyz_ndc = (ijk + 0.5) * 2 / self.res - 1.0
-        xyz_ndc += (torch.rand_like(xyz_ndc) * 2 - 1.0) * noise_scale
-
-        f = self.rf.encode(xyz_ndc)
-        d = self.rf.decode_density(f).squeeze(-1)
-        cur = self.grid[ijk[:, 0], ijk[:, 1], ijk[:, 2]]
-        print(d.mean(), self.grid.min(), self.grid.max())
-        new = torch.maximum(d, cur)
-        self.grid[ijk[:, 0], ijk[:, 1], ijk[:, 2]] = new
-        self.grid_mask = self.grid > self.denity_threshold
 
 
 @dataclasses.dataclass
@@ -125,12 +33,12 @@ class RadianceRenderer:
         self,
         radiance_field: radiance.RadianceField,
         aabb: torch.Tensor,
-        filter: SpatialFilter = None,
+        filter: filtering.SpatialFilter = None,
     ) -> None:
         self.radiance_field = radiance_field
         self.aabb = aabb
         self.with_harmonics = radiance_field.n_color_cond_dims > 0
-        self.filter = filter or BoundsFilter()
+        self.filter = filter or filtering.BoundsFilter()
 
     def render_uv(
         self,
