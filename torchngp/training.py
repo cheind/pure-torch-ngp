@@ -9,7 +9,7 @@ import torch.utils.data
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from torchngp import rendering, radiance, cameras, sampling, plotting
+from torchngp import rendering, radiance, cameras, sampling, plotting, filtering
 import matplotlib.pyplot as plt
 
 
@@ -160,7 +160,6 @@ def train(
     n_acc_steps = n_rays_batch // n_rays_mini_batch
     n_samples_per_cam = int(n_rays_mini_batch / n_views / n_worker)
     val_interval = int(1e6 / n_rays_batch)
-    print(n_samples_per_cam, n_acc_steps, val_interval)
 
     # n_samples_per_cam = train_mvs[0].size[0].item()
     # final_batch_size = max(batch_size // (n_samples_per_cam * n_views), 1)
@@ -181,7 +180,7 @@ def train(
     use_amp = True
     scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
     # accel = rendering.OccupancyGridFilter(nerf, dev=dev)
-    accel = rendering.OccupancyGridFilter(nerf, dev=dev)
+    accel = filtering.OccupancyGridFilter(nerf, dev=dev, update_interval=8)
     renderer = rendering.RadianceRenderer(nerf, aabb, accel)
     fwd_bwd_fn = make_run_fwd_bwd(renderer, scaler, n_acc_steps=n_acc_steps)
 
@@ -250,21 +249,21 @@ if __name__ == "__main__":
     torch.multiprocessing.set_start_method("spawn")
 
     dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    # camera_train, aabb, gt_images_train = load_scene_from_json(
-    #     "./data/lego/transforms_train.json", load_images=True
-    # )
-    # camera_val, _, gt_images_val = load_scene_from_json(
-    #     "./data/lego/transforms_val.json", load_images=True
-    # )
-    # train_mvs = (camera_train, gt_images_train)
-    # val_mvs = (camera_val[:3], gt_images_val[:3])
-
-    camera, aabb, gt_images = load_scene_from_json(
-        "./data/suzanne/transforms.json", load_images=True
+    camera_train, aabb, gt_images_train = load_scene_from_json(
+        "./data/lego/transforms_train.json", load_images=True
     )
+    camera_val, _, gt_images_val = load_scene_from_json(
+        "./data/lego/transforms_val.json", load_images=True
+    )
+    train_mvs = (camera_train, gt_images_train)
+    val_mvs = (camera_val[:3], gt_images_val[:3])
 
-    train_mvs = camera[:-2], gt_images[:-2]
-    val_mvs = camera[-2:], gt_images[-2:]
+    # camera, aabb, gt_images = load_scene_from_json(
+    #     "./data/suzanne/transforms.json", load_images=True
+    # )
+
+    # train_mvs = camera[:-2], gt_images[:-2]
+    # val_mvs = camera[-2:], gt_images[-2:]
 
     # plotting.plot_camera(train_mvs[0])
     # plotting.plot_box(aabb)
