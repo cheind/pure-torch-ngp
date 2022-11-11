@@ -48,7 +48,7 @@ class RadianceRenderer:
         booster: float = 1.0,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         if ray_td is None:
-            ray_td = torch.norm(self.aabb[1] - self.aabb[0]) / 256
+            ray_td = torch.norm(self.aabb[1] - self.aabb[0]) / 1024
 
         batch_shape = uv.shape[:-1]
 
@@ -141,16 +141,13 @@ class RadianceRenderer:
         max_length = max(ray_lengths.max().item(), 0.0)
         n_samples = int(max_length / ray_td)
 
-        return sampling.sample_ray_step_stratified(rays.tnear, rays.tfar, n_samples=512)
-
-        # return sampling.sample_ray_fixed_step_stratified(
-        #     rays.tnear, stepsize=ray_td, n_samples=n_samples
-        # )
+        return sampling.sample_ray_step_stratified(rays.tnear, rays.tfar, n_samples=128)
 
     def render_camera_views(
         self,
         cam: cameras.MultiViewCamera,
         n_samples_per_cam: int = None,
+        booster: float = 1.0,
     ) -> tuple[torch.Tensor, torch.Tensor]:
 
         gen = sampling.generate_sequential_uv_samples(
@@ -160,7 +157,7 @@ class RadianceRenderer:
         color_parts = []
         alpha_parts = []
         for uv, _ in gen:
-            color, alpha = self.render_uv(cam, uv)
+            color, alpha = self.render_uv(cam, uv, booster=booster)
             color_parts.append(color)
             alpha_parts.append(alpha)
 
