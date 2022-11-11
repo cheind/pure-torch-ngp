@@ -1,6 +1,4 @@
 import torch
-import dataclasses
-from typing import Protocol
 
 from . import radiance
 from . import cameras
@@ -8,24 +6,6 @@ from . import sampling
 from . import geometric
 from . import filtering
 from .harmonics import rsh_cart_3
-
-
-@dataclasses.dataclass
-class RayData:
-    o: torch.Tensor
-    d: torch.Tensor
-    tnear: torch.Tensor
-    tfar: torch.Tensor
-    lengths: torch.Tensor
-
-    def filter_by_mask(self, mask: torch.BoolTensor) -> "RayData":
-        return RayData(
-            o=self.o[mask],
-            d=self.d[mask],
-            tnear=self.tnear[mask],
-            tfar=self.tfar[mask],
-            lengths=self.lengths[mask],
-        )
 
 
 class RadianceRenderer:
@@ -52,38 +32,41 @@ class RadianceRenderer:
 
         batch_shape = uv.shape[:-1]
 
-        rays, ray_mask = self._compute_rays_and_mask(cam, uv)
-        rays_active = rays.filter_by_mask(ray_mask)
+        rays = geometric.RayBundle.create_world_rays(cam, uv)
+        rays = rays.intersect_aabb(self.aabb)
+        active_mask = rays.active_mask()
+        active_rays = rays.filter_by_mask(active_mask)
 
-        ts = self._sample_ts(
-            rays_active, ray_lengths=rays_active.lengths, ray_td=ray_td
-        )
-        sample_color, sample_density = self._query_radiance_field(rays_active, ts)
+        ts = sampling.sample_ray_step_stratified(
+            active_rays.tnear, active_rays.tfar, n_samples=128
+        )  # TODO: in sample consider that we are not having normalized dirs
+
+        sample_color, sample_density = self._query_radiance_field(active_rays, ts)
 
         # Integrate colors along rays
         int_color, int_logtransm = radiance.integrate_path(
             sample_color,
             sample_density,
-            torch.cat((ts, booster * rays_active.tfar.unsqueeze(0)), 0),
+            torch.cat((ts, booster * active_rays.tfar.unsqueeze(0)), 0),
         )
 
         # Output (N,...,C), (N,...,1)
         out_color = sample_color.new_zeros(batch_shape + (int_color.shape[-1],))
         out_alpha = sample_density.new_zeros(batch_shape + (1,))
 
-        out_color[ray_mask] = int_color[-1]
-        out_alpha[ray_mask] = 1 - int_logtransm[-2].exp()
+        out_color[active_mask] = int_color[-1]
+        out_alpha[active_mask] = 1 - int_logtransm[-2].exp()
 
         return out_color, out_alpha
 
-    def _query_radiance_field(self, rays, ts):
+    def _query_radiance_field(self, rays: geometric.RayBundle, ts: torch.Tensor):
         """Query the radiance field for the given points `xyz=o + d*ts`"""
         batch_shape = ts.shape[:-1]
         out_color = ts.new_zeros(batch_shape + (self.radiance_field.n_color_dims,))
         out_density = ts.new_zeros(batch_shape + (self.radiance_field.n_density_dims,))
 
         # Evaluate world points (T,N,...,3)
-        xyz = geometric.evaluate_ray(rays.o, rays.d, ts)
+        xyz = rays(ts)
 
         ray_ynm = None
         if self.with_harmonics:
@@ -107,39 +90,9 @@ class RadianceRenderer:
         out_density[mask] = density.to(density.dtype)
         return out_color, out_density
 
-    @torch.no_grad()
-    def _compute_rays_and_mask(
-        self, cam: cameras.MultiViewCamera, uv: torch.Tensor
-    ) -> tuple[RayData, torch.BoolTensor]:
-        # Get world rays (N,...,3)
-        ray_origin, ray_dir, ray_tnear, ray_tfar = geometric.world_ray_from_pixel(
-            cam, uv, normalize_dirs=True
-        )
-
-        # Intersect rays with AABB
-        ray_tnear, ray_tfar = geometric.intersect_ray_aabb(
-            ray_origin, ray_dir, ray_tnear, ray_tfar, self.aabb
-        )
-
-        ray_lengths = ray_tfar - ray_tnear
-        ray_mask = (ray_lengths > 1e-2).squeeze(-1)
-
-        return (
-            RayData(
-                o=ray_origin,
-                d=ray_dir,
-                tnear=ray_tnear,
-                tfar=ray_tfar,
-                lengths=ray_lengths,
-            ),
-            ray_mask,
-        )
-
-    def _sample_ts(
-        self, rays: RayData, ray_lengths: torch.Tensor, ray_td: float
-    ) -> torch.Tensor:
-        max_length = max(ray_lengths.max().item(), 0.0)
-        n_samples = int(max_length / ray_td)
+    def _sample_ts(self, rays: geometric.RayBundle) -> torch.Tensor:
+        # max_length = max(ray_lengths.max().item(), 0.0)
+        # n_samples = int(max_length / ray_td)
 
         return sampling.sample_ray_step_stratified(rays.tnear, rays.tfar, n_samples=128)
 
