@@ -101,7 +101,7 @@ def render_images(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     with torch.cuda.amp.autocast(enabled=use_amp):
         pred_color, pred_alpha = renderer.render_camera_views(
-            cam, n_samples_per_cam=n_samples_per_cam
+            cam, n_samples_per_cam=n_samples_per_cam, booster=1
         )
         pred_rgba = torch.cat((pred_color, pred_alpha), -1).permute(0, 3, 1, 2)
     return pred_rgba
