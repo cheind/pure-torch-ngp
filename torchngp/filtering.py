@@ -44,7 +44,7 @@ class OccupancyGridFilter(BoundsFilter):
         res: int = 64,
         density_initial=0.02,
         density_threshold=0.01,
-        deterministic_mask: bool = True,
+        stochastic_test: bool = False,
         update_interval: int = 16,
         update_decay: float = 0.7,
         update_noise_scale: float = None,
@@ -59,6 +59,7 @@ class OccupancyGridFilter(BoundsFilter):
         self.density_initial = density_initial
         self.density_threshold = density_threshold
         self.update_selection_rate = update_selection_rate
+        self.stochastic_test = stochastic_test
         if update_noise_scale is None:
             update_noise_scale = 0.9
         self.update_noise_scale = update_noise_scale
@@ -71,7 +72,12 @@ class OccupancyGridFilter(BoundsFilter):
         ijk = (xyz_ndc + 1) * self.res * 0.5 - 0.5
         ijk = torch.round(ijk).clamp(0, self.res - 1).long()
 
-        d_mask = self.grid[ijk[:, 2], ijk[:, 1], ijk[:, 0]] > self.density_threshold
+        d = self.grid[ijk[..., 2], ijk[..., 1], ijk[..., 0]]
+        d_mask = d > self.density_threshold
+        if self.stochastic_test:
+            d_stoch_mask = torch.bernoulli(1 - (-(d + 1e-4)).exp()).bool()
+            d_mask |= d_stoch_mask
+
         return mask & d_mask
 
     @torch.no_grad()
