@@ -9,8 +9,7 @@ from .test_radiance import ColorGradientRadianceField
 def test_render_volume_stratified():
     aabb = torch.Tensor([[0.0] * 3, [1.0] * 3])
     rf = ColorGradientRadianceField(
-        aabb=aabb,
-        surface_pos=0.2,
+        surface_pos=0.2 * 2 - 1,
         surface_dim=2,
         density_scale=1e1,  # soft density scale
         cmap="jet",
@@ -54,3 +53,4 @@ def test_render_volume_stratified():
     assert_close(
         img, img2, atol=1e-4, rtol=1e-4
     )  # TODO: when normalize_dirs=False/True gives different results
+    aabb = torch.Tensor([[0.0] * 3, [1.0] * 3])
