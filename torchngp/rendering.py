@@ -70,7 +70,8 @@ class RadianceRenderer:
 
         ray_ynm = None
         if self.with_harmonics:
-            ray_ynm = rsh_cart_3(rays.d).unsqueeze(0).expand(ts.shape[0], -1, -1)
+            dn = rays.d / rays.dnorm
+            ray_ynm = rsh_cart_3(dn).unsqueeze(0).expand(ts.shape[0], -1, -1)
 
         # Convert to ndc (T,N,...,3)
         xyz_ndc = geometric.convert_world_to_box_normalized(xyz, self.aabb)
