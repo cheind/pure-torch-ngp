@@ -137,3 +137,52 @@ def test_radiance_nerf_module():
     rgb, d = nerf(torch.randn(10, 5, 20, 3))
     assert d.shape == (10, 5, 20, 1)
     assert rgb.shape == (10, 5, 20, 3)
+
+
+def test_radiance_integrate_timesteps():
+    import sympy as sym
+    import numpy as np
+
+    i, j, n = sym.symbols("i,j,n", cls=sym.Idx)
+    s = sym.symbols("s", cls=sym.IndexedBase)
+    t = sym.symbols("t", cls=sym.IndexedBase)
+    si = s[i]
+    sj = s[j]
+    di = t[i + 1] - t[i]
+    dj = t[j + 1] - t[j]
+    T = sym.exp(-sym.Sum(dj * sj, (j, 0, i - 1)))
+    a = 1 - sym.exp(-si * di)
+
+    # weights T(i)*alpha(i) according to NERF paper but shifted to start sums at 0
+    w = sym.Sum(T * a, (i, 0, n - 1))
+    # weights as used in this library
+    wme = sym.Sum(
+        sym.exp(-sym.Sum(dj * sj, (j, 0, i - 1)))
+        - sym.exp(-sym.Sum(dj * sj, (j, 0, i))),
+        (i, 0, n - 1),
+    )
+
+    f_w = sym.lambdify((s, t, n), w, "numpy")
+    f_wme = sym.lambdify((s, t, n), wme, "numpy")
+
+    np.random.seed(123)
+    ts = torch.tensor(np.arange(0, 1.1, 0.1)).float()  # 11 elements
+    ss = torch.tensor(np.random.rand(10)).float()  # 10
+
+    assert_close(
+        torch.tensor(f_w(ss.numpy(), ts.numpy(), 10)).float(),
+        torch.tensor(0.4196937821623066),
+    )
+    assert_close(
+        torch.tensor(f_wme(ss.numpy(), ts.numpy(), 10)).float(),
+        torch.tensor(0.4196937821623066),
+    )
+
+    # implementation of this library
+    weights = radiance.integrate_timesteps(
+        ss.view(10, 1, 1),
+        ts[:-1].view(10, 1, 1),
+        torch.tensor([[1.0]]),
+        tfinal=ts[-1].item(),
+    )
+    assert_close(weights.sum(), torch.tensor(0.4196937821623066))

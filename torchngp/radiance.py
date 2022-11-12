@@ -101,7 +101,7 @@ def integrate_timesteps(
     # we add a tfinal value far beyond reach which boosts the last element in
     # integration.
     if not torch.is_tensor(tfinal):
-        tfinal = ts.new_tensor(1e7).expand(batch_shape)
+        tfinal = ts.new_tensor(tfinal).expand(batch_shape)
     ts = torch.cat((ts, tfinal.unsqueeze(0)), 0)
     delta = ts[1:] - ts[:-1]  # (T+1,N,...,1) -> (T,N,...,1)
 
