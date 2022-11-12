@@ -69,7 +69,7 @@ def make_run_fwd_bwd(
             uv = uv.permute(1, 0, 2, 3).reshape(N, B * M, 2)
             rgba = rgba.permute(1, 0, 2, 3).reshape(N, B * M, C)
             rgb, alpha = rgba[..., :3], rgba[..., 3:4]
-            noise = torch.empty_like(rgb).uniform_(0.5, 1.0)
+            noise = torch.empty_like(rgb).uniform_(0.0, 1.0)
             # Dynamic noise background with alpha composition
             # Encourages the model to learn zero density in empty regions
             # Dynamic background is also combined with prediced colors, so
@@ -77,13 +77,14 @@ def make_run_fwd_bwd(
             gt_rgb_mixed = rgb * alpha + noise * (1 - alpha)
 
             # Predict
-            pred_rgb, pred_alpha = renderer.render_uv(cam, uv, booster=10.0)
+            pred_rgb, pred_alpha = renderer.render_uv(cam, uv, booster=2.0)
             # Mix
             pred_rgb_mixed = pred_rgb * pred_alpha + noise * (1 - pred_alpha)
 
             # Loss normalized by number of accumulation steps before
             # update
-            loss = F.mse_loss(pred_rgb_mixed, gt_rgb_mixed) / n_acc_steps
+            loss = F.smooth_l1_loss(pred_rgb_mixed, gt_rgb_mixed)
+            loss = loss / n_acc_steps
 
         # Scale the loss
         scaler.scale(loss).backward()
@@ -101,7 +102,7 @@ def render_images(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     with torch.cuda.amp.autocast(enabled=use_amp):
         pred_color, pred_alpha = renderer.render_camera_views(
-            cam, n_samples_per_cam=n_samples_per_cam
+            cam, n_samples_per_cam=n_samples_per_cam, booster=2
         )
         pred_rgba = torch.cat((pred_color, pred_alpha), -1).permute(0, 3, 1, 2)
     return pred_rgba
@@ -285,7 +286,7 @@ if __name__ == "__main__":
     nerf_kwargs = dict(
         n_colors=3,
         n_hidden=64,
-        n_encodings=2**16,
+        n_encodings=2**18,
         n_levels=16,
         n_color_cond=16,
         min_res=32,
