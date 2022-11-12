@@ -30,29 +30,31 @@ class RadianceRenderer:
         if ray_td is None:
             ray_td = torch.norm(self.aabb[1] - self.aabb[0]) / 1024
 
+        # Output (N,...,C), (N,...,1)
         batch_shape = uv.shape[:-1]
+        out_color = uv.new_zeros(batch_shape + (self.radiance_field.n_color_dims,))
+        out_alpha = uv.new_zeros(batch_shape + (1,))
 
         rays = geometric.RayBundle.create_world_rays(cam, uv)
         rays = rays.intersect_aabb(self.aabb)
         active_mask = rays.active_mask()
         active_rays = rays.filter_by_mask(active_mask)
 
+        if active_rays.d.numel() == 0:
+            return out_color, out_alpha
+
         ts = sampling.sample_ray_step_stratified(
-            active_rays.tnear, active_rays.tfar, n_samples=128
+            active_rays.tnear, active_rays.tfar, n_samples=512
         )  # TODO: in sample consider that we are not having normalized dirs
 
         ts_color, ts_density = self._query_radiance_field(active_rays, ts)
 
         # Integrate colors along rays
         ts_weights = radiance.integrate_timesteps(
-            ts_density, ts, active_rays.dnorm, tfinal=active_rays.tfar * booster
+            ts_density, ts, active_rays.dnorm, tfinal=active_rays.tfar + booster
         )
         ts_final_color = radiance.color_map(ts_color, ts_weights)
         ts_final_alpha = radiance.alpha_map(ts_weights)
-
-        # Output (N,...,C), (N,...,1)
-        out_color = ts_color.new_zeros(batch_shape + (ts_final_color.shape[-1],))
-        out_alpha = ts_density.new_zeros(batch_shape + (1,))
 
         out_color[active_mask] = ts_final_color
         out_alpha[active_mask] = ts_final_alpha
