@@ -8,20 +8,20 @@ from . import filtering
 from .harmonics import rsh_cart_3
 
 
-class RadianceRenderer:
+class RadianceRenderer(torch.nn.Module):
     def __init__(
         self,
-        radiance_field: radiance.RadianceField,
         aabb: torch.Tensor,
         filter: filtering.SpatialFilter = None,
     ) -> None:
-        self.radiance_field = radiance_field
-        self.aabb = aabb
-        self.with_harmonics = radiance_field.n_color_cond_dims > 0
+        super().__init__()
+        self.register_buffer("aabb", aabb)
         self.filter = filter or filtering.BoundsFilter()
+        self.aabb: torch.Tensor
 
     def render_uv(
         self,
+        rf: radiance.RadianceField,
         cam: cameras.MultiViewCamera,
         uv: torch.Tensor,
         ray_td: float = None,
@@ -32,7 +32,7 @@ class RadianceRenderer:
 
         # Output (N,...,C), (N,...,1)
         batch_shape = uv.shape[:-1]
-        out_color = uv.new_zeros(batch_shape + (self.radiance_field.n_color_dims,))
+        out_color = uv.new_zeros(batch_shape + (rf.n_color_dims,))
         out_alpha = uv.new_zeros(batch_shape + (1,))
 
         rays = geometric.RayBundle.create_world_rays(cam, uv)
@@ -47,7 +47,7 @@ class RadianceRenderer:
             active_rays.tnear, active_rays.tfar, n_samples=512
         )  # TODO: in sample consider that we are not having normalized dirs
 
-        ts_color, ts_density = self._query_radiance_field(active_rays, ts)
+        ts_color, ts_density = self._query_radiance_field(rf, active_rays, ts)
 
         # Integrate colors along rays
         ts_weights = radiance.integrate_timesteps(
@@ -61,17 +61,20 @@ class RadianceRenderer:
 
         return out_color, out_alpha
 
-    def _query_radiance_field(self, rays: geometric.RayBundle, ts: torch.Tensor):
+    def _query_radiance_field(
+        self, rf: radiance.RadianceField, rays: geometric.RayBundle, ts: torch.Tensor
+    ):
         """Query the radiance field for the given points `xyz=o + d*ts`"""
         batch_shape = ts.shape[:-1]
-        out_color = ts.new_zeros(batch_shape + (self.radiance_field.n_color_dims,))
-        out_density = ts.new_zeros(batch_shape + (self.radiance_field.n_density_dims,))
+        out_color = ts.new_zeros(batch_shape + (rf.n_color_dims,))
+        out_density = ts.new_zeros(batch_shape + (rf.n_density_dims,))
 
         # Evaluate world points (T,N,...,3)
         xyz = rays(ts)
 
         ray_ynm = None
-        if self.with_harmonics:
+        with_harmonics = rf.n_color_cond_dims > 0
+        if with_harmonics:
             dn = rays.d / rays.dnorm
             ray_ynm = rsh_cart_3(dn).unsqueeze(0).expand(ts.shape[0], -1, -1)
 
@@ -83,11 +86,11 @@ class RadianceRenderer:
 
         # (V,3)
         xyz_ndc_masked = xyz_ndc[mask]
-        if self.with_harmonics:
+        if with_harmonics:
             ray_ynm = ray_ynm[mask]
 
-        # Predict for filtered locations
-        color, density = self.radiance_field(xyz_ndc_masked, color_cond=ray_ynm)
+        # Predict
+        color, density = rf(xyz_ndc_masked, color_cond=ray_ynm)
 
         out_color[mask] = color.to(out_color.dtype)
         out_density[mask] = density.to(density.dtype)
@@ -95,6 +98,7 @@ class RadianceRenderer:
 
     def render_camera_views(
         self,
+        rf: radiance.RadianceField,
         cam: cameras.MultiViewCamera,
         n_samples_per_cam: int = None,
         booster: float = 1.0,
@@ -107,7 +111,7 @@ class RadianceRenderer:
         color_parts = []
         alpha_parts = []
         for uv, _ in gen:
-            color, alpha = self.render_uv(cam, uv, booster=booster)
+            color, alpha = self.render_uv(rf, cam, uv, booster=booster)
             color_parts.append(color)
             alpha_parts.append(alpha)
 

@@ -1,8 +1,9 @@
 from typing import Protocol
+
 import torch
 
-from .radiance import RadianceField
 from . import geometric
+from .radiance import RadianceField
 
 
 class SpatialFilter(Protocol):
@@ -23,21 +24,22 @@ class SpatialFilter(Protocol):
         """
         ...
 
-    def update(self, global_step: int):
+    def update(self, rf: RadianceField, global_step: int):
         """Update this accelerator."""
         ...
 
 
-class BoundsFilter(SpatialFilter):
+class BoundsFilter(torch.nn.Module, SpatialFilter):
     def test(self, xyz_ndc: torch.Tensor) -> torch.BoolTensor:
         mask = ((xyz_ndc >= -1.0) & (xyz_ndc <= 1.0)).all(-1)
         return mask
 
-    def update(self, global_step: int):
+    def update(self, rf: RadianceField, global_step: int):
+        del rf, global_step
         pass
 
 
-class OccupancyGridFilter(BoundsFilter):
+class OccupancyGridFilter(BoundsFilter, torch.nn.Module):
     def __init__(
         self,
         rf: RadianceField,
@@ -49,9 +51,8 @@ class OccupancyGridFilter(BoundsFilter):
         update_decay: float = 0.7,
         update_noise_scale: float = None,
         update_selection_rate=0.25,
-        dev: torch.device = None,
     ) -> None:
-        super().__init__()
+        torch.nn.Module.__init__(self)
         self.rf = rf
         self.res = res
         self.update_interval = update_interval
@@ -63,8 +64,8 @@ class OccupancyGridFilter(BoundsFilter):
         if update_noise_scale is None:
             update_noise_scale = 0.9
         self.update_noise_scale = update_noise_scale
-        self.dev = dev
-        self.grid = torch.full((res, res, res), density_initial, device=dev)
+        self.register_buffer("grid", torch.full((res, res, res), density_initial))
+        self.grid: torch.Tensor
 
     def test(self, xyz_ndc: torch.Tensor) -> torch.BoolTensor:
         mask = super().test(xyz_ndc)
@@ -81,7 +82,7 @@ class OccupancyGridFilter(BoundsFilter):
         return mask & d_mask
 
     @torch.no_grad()
-    def update(self, global_step: int):
+    def update(self, rf: RadianceField, global_step: int):
         if (global_step + 1) % self.update_interval > 0:
             return
 
@@ -89,12 +90,12 @@ class OccupancyGridFilter(BoundsFilter):
 
         if self.update_selection_rate < 1.0:
             M = int(self.update_selection_rate * self.res**3)
-            ijk = torch.randint(0, self.res, size=(M, 3), device=self.dev)
+            ijk = torch.randint(0, self.res, size=(M, 3), device=self.grid.device)
         else:
             ijk = geometric.make_grid(
                 (self.res, self.res, self.res),
                 indexing="xy",
-                device=self.dev,
+                device=self.grid.device,
                 dtype=torch.long,
             ).view(-1, 3)
 
@@ -103,8 +104,8 @@ class OccupancyGridFilter(BoundsFilter):
         xyz = ijk + noise
         xyz_ndc = (xyz + 0.5) * 2 / self.res - 1.0
 
-        f = self.rf.encode(xyz_ndc)
-        d = self.rf.decode_density(f).squeeze(-1)
+        f = rf.encode(xyz_ndc)
+        d = rf.decode_density(f).squeeze(-1)
         cur = self.grid[ijk[:, 2], ijk[:, 1], ijk[:, 0]]
         new = torch.maximum(d, cur)
         self.grid[ijk[:, 2], ijk[:, 1], ijk[:, 0]] = new
