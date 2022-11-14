@@ -8,6 +8,7 @@ from torchngp import radiance, geometric, sampling
 def plot_density_scale(ds, show=True):
     o = torch.tensor([[-1.0, 0.0, 0.0]])
     d = torch.tensor([[1.0, 0.0, 0.0]])
+    dnorm = torch.tensor([[1.0]])
 
     plane_n = torch.tensor([1.0, 0.0, 0.0])
     plane_o = torch.tensor([0.3, 0.0, 0.0])
@@ -26,10 +27,10 @@ def plot_density_scale(ds, show=True):
     density[mask] = 0.0
     density[~mask] *= ds
 
-    out_color, out_log_transm = radiance.integrate_path(
-        color[..., :3], density, torch.cat((ts, tfar.unsqueeze(0)), 0)
-    )
-    out_transm = out_log_transm.exp()
+    ts_weights = radiance.integrate_timesteps(density, ts, dnorm, tfinal=tfar + 1e-2)
+    out_color = radiance.color_map(color[..., :3], ts_weights, per_timestep=True)
+    out_transm = 1.0 - radiance.alpha_map(ts_weights, per_timestep=True)
+
     fig, ax = plt.subplots(figsize=(8, 8))
     fig.text(0.35, 0.9, f"density scale factor {ds:.1f}")
     ax.vlines(
@@ -37,7 +38,7 @@ def plot_density_scale(ds, show=True):
     )
 
     shifted_ts = ts[:, 0] - tnear[0, 0]
-    ax.plot(shifted_ts, out_transm[:-1, 0], c="gray", label="transmittance")
+    ax.plot(shifted_ts, out_transm[:, 0], c="gray", label="transmittance")
     ax.plot(
         shifted_ts,
         density[:, 0],
@@ -52,7 +53,7 @@ def plot_density_scale(ds, show=True):
     plt.text(0.01, 0.45, "final color")
     ax.scatter(
         shifted_ts,
-        out_transm[:-1, 0],
+        out_transm[:, 0],
         c=color[:, 0],
         s=20,
         zorder=2,
@@ -60,7 +61,7 @@ def plot_density_scale(ds, show=True):
     )
     ax.scatter(
         shifted_ts,
-        out_transm[:-1, 0] + 0.04,
+        out_transm[:, 0] + 0.04,
         c=out_color[:, 0],
         s=20,
         marker="s",
@@ -82,6 +83,7 @@ def plot_density_scale(ds, show=True):
 
 
 def main():
+    _ = plot_density_scale(1)
     _ = plot_density_scale(10)
     _ = plot_density_scale(100)
     _ = plot_density_scale(float("inf"))

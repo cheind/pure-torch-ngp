@@ -69,7 +69,7 @@ def make_run_fwd_bwd(
             uv = uv.permute(1, 0, 2, 3).reshape(N, B * M, 2)
             rgba = rgba.permute(1, 0, 2, 3).reshape(N, B * M, C)
             rgb, alpha = rgba[..., :3], rgba[..., 3:4]
-            noise = torch.empty_like(rgb).uniform_(0.5, 1.0)
+            noise = torch.empty_like(rgb).uniform_(0.0, 1.0)
             # Dynamic noise background with alpha composition
             # Encourages the model to learn zero density in empty regions
             # Dynamic background is also combined with prediced colors, so
@@ -77,13 +77,14 @@ def make_run_fwd_bwd(
             gt_rgb_mixed = rgb * alpha + noise * (1 - alpha)
 
             # Predict
-            pred_rgb, pred_alpha = renderer.render_uv(cam, uv, booster=10.0)
+            pred_rgb, pred_alpha = renderer.render_uv(cam, uv, booster=2.0)
             # Mix
             pred_rgb_mixed = pred_rgb * pred_alpha + noise * (1 - pred_alpha)
 
             # Loss normalized by number of accumulation steps before
             # update
-            loss = F.mse_loss(pred_rgb_mixed, gt_rgb_mixed) / n_acc_steps
+            loss = F.smooth_l1_loss(pred_rgb_mixed, gt_rgb_mixed)
+            loss = loss / n_acc_steps
 
         # Scale the loss
         scaler.scale(loss).backward()
@@ -251,18 +252,27 @@ if __name__ == "__main__":
     torch.multiprocessing.set_start_method("spawn")
 
     dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    camera_train, aabb, gt_images_train = load_scene_from_json(
-        "./data/lego/transforms_train.json", load_images=True
+    # camera_train, aabb, gt_images_train = load_scene_from_json(
+    #     "./data/lego/transforms_train.json", load_images=True
+    # )
+    # camera_val, _, gt_images_val = load_scene_from_json(
+    #     "./data/lego/transforms_val.json", load_images=True
+    # )
+    # train_mvs = (camera_train, gt_images_train)
+    # val_mvs = (camera_val[:3], gt_images_val[:3])
+
+    camera, aabb, gt_images = load_scene_from_json(
+        "./data/suzanne/transforms.json", load_images=True
     )
-    camera_val, _, gt_images_val = load_scene_from_json(
-        "./data/lego/transforms_val.json", load_images=True
-    )
-    train_mvs = (camera_train, gt_images_train)
-    val_mvs = (camera_val[:3], gt_images_val[:3])
+    train_mvs = camera[:-2], gt_images[:-2]
+    val_mvs = camera[-2:], gt_images[-2:]
 
     # camera, aabb, gt_images = load_scene_from_json(
-    #     "./data/suzanne/transforms.json", load_images=True
+    #     "./data/trivial/transforms.json", load_images=True
     # )
+
+    # train_mvs = camera, gt_images
+    # val_mvs = camera, gt_images
 
     # train_mvs = camera[:-2], gt_images[:-2]
     # val_mvs = camera[-2:], gt_images[-2:]
@@ -278,7 +288,7 @@ if __name__ == "__main__":
     nerf_kwargs = dict(
         n_colors=3,
         n_hidden=64,
-        n_encodings=2**16,
+        n_encodings=2**18,
         n_levels=16,
         n_color_cond=16,
         min_res=32,
