@@ -49,6 +49,10 @@ def load_scene_from_json(
     offset = torch.tensor(data.get("offset", 0.5)).to(device).to(dtype)
 
     if "aabb" not in data:
+        _logger.debug(
+            "Key 'aabb' not found. Assuming legacy NeRF format with origin at 0.5 and"
+            " side length 1."
+        )
         aabb = (
             torch.stack(
                 (
@@ -63,11 +67,11 @@ def load_scene_from_json(
     else:
         aabb = torch.tensor(data["aabb"]).to(device).to(dtype)
 
-    print("AABB", aabb)
-
     Rs = []
     Ts = []
     view_images = []
+    n_skipped = 0
+    n_fixed = 0
     for frame in data["frames"]:
         # Handle image
         if load_images:
@@ -76,7 +80,8 @@ def load_scene_from_json(
                 # Original nerf does not specify image suffix
                 imgpath = imgpath.with_suffix(".png")
             if not imgpath.is_file():
-                print(f"Skipping {str(imgpath)}, image not found.")
+                _logger.debug(f"Failed to find {str(imgpath)}, skipping.")
+                n_skipped += 1
                 continue
             img = Image.open(imgpath).convert("RGBA")
             img = torch.tensor(np.asarray(img)).to(dtype).permute(2, 0, 1) / 255.0
@@ -86,7 +91,8 @@ def load_scene_from_json(
         # That's the case for some frames of the fox-dataset.
         t = torch.tensor(frame["transform_matrix"]).to(torch.float64)
         if (torch.det(t[:3, :3]) - 1.0) > 1e-5:
-            print(f"Correcting rotation matrix for {str(imgpath)}")
+            _logger.debug(f"Pose for {str(imgpath)} not ortho-normalized, correcting.")
+            n_fixed += 1
             res = torch.svd(t[:3, :3])
             u, s, v = res
             u = F.normalize(u, p=2, dim=0)
@@ -124,7 +130,7 @@ def load_scene_from_json(
         principal_point=[cx, cy],
         size=[W, H],
         tnear=0.0,
-        tfar=10,
+        tfar=20,
         R=Rs,
         T=Ts,
     )
@@ -133,11 +139,9 @@ def load_scene_from_json(
     if load_images:
         images = torch.stack(view_images, 0).to(device)
 
+    _logger.info(
+        f"Imported {camera.n_views} poses from '{str(path)}', skipped"
+        f" {n_skipped} poses and fixed {n_fixed} poses. Bounds set to {aabb}."
+    )
+
     return camera, aabb, images
-
-
-if __name__ == "__main__":
-    # camera, aabb, images = load_scene_from_json("data/suzanne/transforms.json")
-
-    # camera, aabb, images = load_scene_from_json("data/fox/transforms.json")
-    camera, aabb, images = load_scene_from_json("data/lego/transforms_train.json")

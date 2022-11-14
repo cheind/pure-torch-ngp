@@ -1,4 +1,5 @@
 import time
+import logging
 import copy
 from itertools import islice
 from PIL import Image
@@ -246,6 +247,7 @@ def train(
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
 
     from .io import load_scene_from_json
 
