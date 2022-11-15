@@ -72,10 +72,10 @@ def train(
     scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
     # accel = rendering.OccupancyGridFilter(nerf, dev=dev)
     accel = filtering.OccupancyGridFilter(
-        nerf, update_interval=8, stochastic_test=True
+        res=64, update_interval=8, stochastic_test=True
     ).to(dev)
     renderer = rendering.RadianceRenderer(aabb, accel).to(dev)
-    fwd_bwd_fn = training.make_run_fwd_bwd(
+    fwd_bwd_fn = training.create_fwd_bwd_closure(
         nerf, renderer, scaler, n_acc_steps=n_acc_steps
     )
 

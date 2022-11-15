@@ -57,7 +57,7 @@ class MultiViewDataset(torch.utils.data.IterableDataset):
         return self.n_pixels_per_cam // self.n_samples_per_cam
 
 
-def make_run_fwd_bwd(
+def create_fwd_bwd_closure(
     rf: radiance.RadianceField,
     renderer: rendering.RadianceRenderer,
     scaler: torch.cuda.amp.GradScaler,
@@ -66,6 +66,7 @@ def make_run_fwd_bwd(
     # https://pytorch.org/docs/stable/notes/amp_examples.html#gradient-accumulation
     def run_fwd_bwd(cam: cameras.MultiViewCamera, uv: torch.Tensor, rgba: torch.Tensor):
         B, N, M, C = rgba.shape
+        maps = {"color", "alpha"}
 
         with torch.cuda.amp.autocast(enabled=scaler.is_enabled()):
             uv = uv.permute(1, 0, 2, 3).reshape(N, B * M, 2)
@@ -79,7 +80,8 @@ def make_run_fwd_bwd(
             gt_rgb_mixed = rgb * alpha + noise * (1 - alpha)
 
             # Predict
-            pred_rgb, pred_alpha = renderer.render_uv(rf, cam, uv, booster=2.0)
+            pred_maps = renderer.trace_uv(rf, cam, uv, which_maps=maps, booster=2.0)
+            pred_rgb, pred_alpha = pred_maps["color"], pred_maps["alpha"]
             # Mix
             pred_rgb_mixed = pred_rgb * pred_alpha + noise * (1 - pred_alpha)
 
@@ -104,10 +106,10 @@ def render_images(
     n_samples_per_cam: int,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     with torch.cuda.amp.autocast(enabled=use_amp):
-        pred_color, pred_alpha = renderer.render_camera_views(
-            rf, cam, n_samples_per_cam=n_samples_per_cam, booster=1
+        maps = renderer.trace_maps(
+            rf, cam, n_samples_per_cam=n_samples_per_cam, booster=2
         )
-        pred_rgba = torch.cat((pred_color, pred_alpha), -1).permute(0, 3, 1, 2)
+        pred_rgba = torch.cat((maps["color"], maps["alpha"]), -1).permute(0, 3, 1, 2)
     return pred_rgba
 
 

@@ -42,7 +42,6 @@ class BoundsFilter(torch.nn.Module, SpatialFilter):
 class OccupancyGridFilter(BoundsFilter, torch.nn.Module):
     def __init__(
         self,
-        rf: RadianceField,
         res: int = 64,
         density_initial=0.02,
         density_threshold=0.01,
@@ -53,7 +52,6 @@ class OccupancyGridFilter(BoundsFilter, torch.nn.Module):
         update_selection_rate=0.25,
     ) -> None:
         torch.nn.Module.__init__(self)
-        self.rf = rf
         self.res = res
         self.update_interval = update_interval
         self.update_decay = update_decay
