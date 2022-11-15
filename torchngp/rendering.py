@@ -19,8 +19,8 @@ class RadianceRenderer(torch.nn.Module):
         filter: filtering.SpatialFilter = None,
     ) -> None:
         super().__init__()
-        self.register_buffer("aabb", aabb)
         self.filter = filter or filtering.BoundsFilter()
+        self.register_buffer("aabb", aabb)
         self.aabb: torch.Tensor
 
     def trace_uv(
@@ -28,12 +28,12 @@ class RadianceRenderer(torch.nn.Module):
         rf: radiance.RadianceField,
         cam: cameras.MultiViewCamera,
         uv: torch.Tensor,
+        tsampler: sampling.RayStepSampler,
         which_maps: Optional[set[MAPKEY]] = None,
-        ray_td: float = None,
         booster: float = 1.0,
     ) -> dict[MAPKEY, Optional[torch.Tensor]]:
-        if ray_td is None:
-            ray_td = torch.norm(self.aabb[1] - self.aabb[0]) / 1024
+        # if ray_td is None:
+        #     ray_td = torch.norm(self.aabb[1] - self.aabb[0]) / 1024
         if which_maps is None:
             which_maps = {"color", "alpha"}
 
@@ -55,9 +55,8 @@ class RadianceRenderer(torch.nn.Module):
         if active_rays.d.numel() == 0:
             return result
 
-        ts = sampling.sample_ray_step_stratified(
-            active_rays.tnear, active_rays.tfar, n_samples=512
-        )  # TODO: in sample consider that we are not having normalized dirs
+        # Sample along rays
+        ts = tsampler(active_rays)
 
         # Query radiance field at sample locations.
         ts_color, ts_density = self._query_radiance_field(
@@ -85,6 +84,7 @@ class RadianceRenderer(torch.nn.Module):
         self,
         rf: radiance.RadianceField,
         cam: cameras.MultiViewCamera,
+        tsampler: sampling.RayStepSampler,
         which_maps: Optional[set[MAPKEY]] = None,
         n_samples_per_cam: int = None,
         booster: float = 1.0,
@@ -99,9 +99,10 @@ class RadianceRenderer(torch.nn.Module):
         parts = []
         for uv, _ in gen:
             result = self.trace_uv(
-                rf,
-                cam,
-                uv,
+                rf=rf,
+                cam=cam,
+                uv=uv,
+                tsampler=tsampler,
                 which_maps=which_maps,
                 booster=booster,
             )

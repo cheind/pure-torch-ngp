@@ -28,7 +28,8 @@ def test_render_volume_stratified():
     rdr = rendering.RadianceRenderer(aabb)
     which_maps = {"color", "alpha"}
     torch.random.manual_seed(123)
-    result = rdr.trace_uv(rf, cam, cam.make_uv_grid(), which_maps=which_maps)
+    tsampler = sampling.StratifiedRayStepSampler(n_samples=128)
+    result = rdr.trace_uv(rf, cam, cam.make_uv_grid(), tsampler, which_maps=which_maps)
     img = torch.cat((result["color"], result["alpha"]), -1)
 
     # TODO: test this
@@ -42,7 +43,7 @@ def test_render_volume_stratified():
 
     torch.random.manual_seed(123)
     for uv, _ in sampling.generate_sequential_uv_samples(cam):
-        maps = rdr.trace_uv(rf, cam, uv, which_maps=which_maps)
+        maps = rdr.trace_uv(rf, cam, uv, tsampler, which_maps=which_maps)
         color_parts.append(maps["color"])
         alpha_parts.append(maps["alpha"])
 

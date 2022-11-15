@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from tqdm import tqdm
 from PIL import Image
 
-from .. import io, radiance, rendering, cameras, plotting, training, filtering
+from .. import io, radiance, rendering, cameras, sampling, training, filtering
 
 
 def train(
@@ -75,8 +75,9 @@ def train(
         res=64, update_interval=8, stochastic_test=True
     ).to(dev)
     renderer = rendering.RadianceRenderer(aabb, accel).to(dev)
+    tsampler = sampling.StratifiedRayStepSampler(n_samples=256)
     fwd_bwd_fn = training.create_fwd_bwd_closure(
-        nerf, renderer, scaler, n_acc_steps=n_acc_steps
+        nerf, renderer, tsampler, scaler, n_acc_steps=n_acc_steps
     )
 
     pbar_postfix = {"loss": 0.0}
@@ -112,6 +113,7 @@ def train(
                     nerf,
                     renderer,
                     render_val_cams,
+                    tsampler,
                     use_amp=use_amp,
                     n_samples_per_cam=n_rays_mini_batch // render_val_cams.n_views,
                 )
@@ -124,6 +126,7 @@ def train(
                     nerf,
                     renderer,
                     render_train_cams,
+                    tsampler,
                     use_amp=use_amp,
                     n_samples_per_cam=n_rays_mini_batch // render_train_cams.n_views,
                 )
