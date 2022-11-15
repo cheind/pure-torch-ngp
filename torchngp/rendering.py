@@ -7,7 +7,7 @@ from . import cameras
 from . import sampling
 from . import geometric
 from . import filtering
-from .harmonics import rsh_cart_3
+from . import functional
 
 MAPKEY = Literal["color", "depth", "alpha"]
 
@@ -48,7 +48,7 @@ class RadianceRenderer(torch.nn.Module):
         if "depth" in which_maps:
             result["depth"] = uv.new_zeros(bshape + (1,))
 
-        rays = geometric.RayBundle.create_world_rays(cam, uv)
+        rays = geometric.RayBundle.make_world_rays(cam, uv)
         rays = rays.intersect_aabb(self.aabb)
         active_mask = rays.active_mask()
         active_rays = rays.filter_by_mask(active_mask)
@@ -67,7 +67,7 @@ class RadianceRenderer(torch.nn.Module):
         )
 
         # Compute integration weights
-        ts_weights = radiance.integrate_timesteps(
+        ts_weights = functional.integrate_timesteps(
             ts_density,
             ts,
             active_rays.dnorm,
@@ -76,11 +76,11 @@ class RadianceRenderer(torch.nn.Module):
 
         # Compute result maps
         if "color" in which_maps:
-            result["color"][active_mask] = radiance.color_map(ts_color, ts_weights)
+            result["color"][active_mask] = functional.color_map(ts_color, ts_weights)
         if "alpha" in which_maps:
-            result["alpha"][active_mask] = radiance.alpha_map(ts_weights)
+            result["alpha"][active_mask] = functional.alpha_map(ts_weights)
         if "depth" in which_maps:
-            result["depth"][active_mask] = radiance.depth_map(ts, ts_weights)
+            result["depth"][active_mask] = functional.depth_map(ts, ts_weights)
 
         return result
 
@@ -136,10 +136,10 @@ class RadianceRenderer(torch.nn.Module):
         with_harmonics = rf.n_color_cond_dims > 0
         if with_harmonics:
             dn = rays.d / rays.dnorm
-            ray_ynm = rsh_cart_3(dn).unsqueeze(0).expand(ts.shape[0], -1, -1)
+            ray_ynm = functional.rsh_cart_3(dn).unsqueeze(0).expand(ts.shape[0], -1, -1)
 
         # Convert to ndc (T,N,...,3)
-        xyz_ndc = geometric.convert_world_to_box_normalized(xyz, self.aabb)
+        xyz_ndc = functional.convert_world_to_box_normalized(xyz, self.aabb)
 
         # Filter (T,N,...)
         mask = self.filter.test(xyz_ndc)

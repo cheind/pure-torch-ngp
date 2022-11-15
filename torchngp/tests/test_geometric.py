@@ -3,7 +3,8 @@ from torch.testing import assert_close
 
 from torchngp import geometric as geo
 from torchngp.cameras import MultiViewCamera
-from torchngp.linalg import rotation_matrix
+from torchngp.functional.linalg import rotation_matrix
+from torchngp import functional
 
 
 def test_world_rays_shape():
@@ -18,13 +19,12 @@ def test_world_rays_shape():
         tfar=10,
     )
 
-    ray_origin, ray_dir, ray_tnear, ray_tfar = geo.world_ray_from_pixel(
-        cam, cam.make_uv_grid(), normalize_dirs=True
-    )
-    assert ray_origin.shape == (2, H, W, 3)
-    assert ray_dir.shape == (2, H, W, 3)
-    assert ray_tnear.shape == (2, H, W, 1)
-    assert ray_tfar.shape == (2, H, W, 1)
+    rays = geo.RayBundle.make_world_rays(cam, cam.make_uv_grid())
+
+    assert rays.o.shape == (2, H, W, 3)
+    assert rays.d.shape == (2, H, W, 3)
+    assert rays.tnear.shape == (2, H, W, 1)
+    assert rays.tfar.shape == (2, H, W, 1)
 
 
 def test_world_rays_origins_directions():
@@ -39,18 +39,15 @@ def test_world_rays_origins_directions():
         tnear=0,
         tfar=100,
     )
-    cam = cam[[0, 0]]
-    ray_origin, ray_dir, ray_tnear, ray_tfar = geo.world_ray_from_pixel(
-        cam, cam.make_uv_grid(), normalize_dirs=False
-    )
-    assert_close(ray_tnear, torch.tensor([0.0]).expand_as(ray_tnear))
-    assert_close(ray_tfar, torch.tensor([100.0]).expand_as(ray_tfar))
+    cam = cam[[0, 0]]  # twice the same cam
 
-    center_dir = ray_dir[
-        :, 1, 1, :
-    ]  # ray through princ. point should match z-dir of R.
+    rays = geo.RayBundle.make_world_rays(cam, cam.make_uv_grid())
+    assert_close(rays.tnear, torch.tensor([0.0]).expand_as(rays.tnear))
+    assert_close(rays.tfar, torch.tensor([100.0]).expand_as(rays.tnear))
 
-    assert_close(ray_origin, cam.T.view(-1, 1, 1, 3).expand_as(ray_origin))
+    center_dir = rays.d[:, 1, 1, :]  # ray through princ. point should match z-dir of R.
+
+    assert_close(rays.o, cam.T.view(-1, 1, 1, 3).expand_as(rays.o))
     assert_close(center_dir, cam.R[..., 2])
 
 
@@ -62,24 +59,26 @@ def test_ray_aabb_intersection():
     tnear_initial = torch.tensor([0.0])
     tfar_initial = torch.tensor([10.0])
 
-    tnear, tfar = geo.intersect_ray_aabb(o, d, tnear_initial, tfar_initial, aabb)
+    tnear, tfar = functional.intersect_ray_aabb(o, d, tnear_initial, tfar_initial, aabb)
     assert_close(tnear, torch.tensor([[1.0]]))
     assert_close(tfar, torch.tensor([[3.0]]))
 
     # invert direction, because of initial tnear=0, result won't allow -3 as tnear
-    tnear, tfar = geo.intersect_ray_aabb(o, -d, tnear_initial, tfar_initial, aabb)
+    tnear, tfar = functional.intersect_ray_aabb(
+        o, -d, tnear_initial, tfar_initial, aabb
+    )
     assert_close(tnear, torch.tensor([[0.0]]))
     assert_close(tfar, torch.tensor([[-1.0]]))
 
     # however with updated initial bounds we see the hit
-    tnear, tfar = geo.intersect_ray_aabb(
+    tnear, tfar = functional.intersect_ray_aabb(
         o, -d, torch.tensor([-10.0]), tfar_initial, aabb
     )
     assert_close(tnear, torch.tensor([[-3.0]]))
     assert_close(tfar, torch.tensor([[-1.0]]))
 
     # miss
-    tnear, tfar = geo.intersect_ray_aabb(
+    tnear, tfar = functional.intersect_ray_aabb(
         o, torch.tensor([[0.0, 0.0, 1.0]]), tnear_initial, tfar_initial, aabb
     )
     assert (tnear > tfar).all()
@@ -90,7 +89,7 @@ def test_ray_aabb_intersection():
     tnear_initial = torch.tensor([[0.0]]).expand(100, -1)
     tfar_initial = torch.tensor([[10.0]]).expand(100, -1)
 
-    tnear, tfar = geo.intersect_ray_aabb(o, d, tnear_initial, tfar_initial, aabb)
+    tnear, tfar = functional.intersect_ray_aabb(o, d, tnear_initial, tfar_initial, aabb)
     assert tnear.shape == (100, 1)
     assert tfar.shape == (100, 1)
     assert (tnear < tfar).all()  # all intersect
@@ -110,7 +109,7 @@ def test_ray_aabb_intersection():
     tnear_initial = torch.tensor([[0.0]]).expand(100, -1).view(5, 20, 1)
     tfar_initial = torch.tensor([[10.0]]).expand(100, -1).view(5, 20, 1)
 
-    tnear, tfar = geo.intersect_ray_aabb(o, d, tnear_initial, tfar_initial, aabb)
+    tnear, tfar = functional.intersect_ray_aabb(o, d, tnear_initial, tfar_initial, aabb)
     assert tnear.shape == (5, 20, 1)
     assert tfar.shape == (5, 20, 1)
     assert (tnear < tfar).all()  # all intersect
@@ -140,7 +139,7 @@ def test_convert_world_to_box_normalized():
     xyz *= torch.tensor([1.0, 2.0, 3.0]).view(1, 1, 1, 3)
     xyz += t.view(1, 1, 1, 3)
 
-    nxyz = geo.convert_world_to_box_normalized(xyz, aabb + t.view(1, 3))
+    nxyz = functional.convert_world_to_box_normalized(xyz, aabb + t.view(1, 3))
 
     # Note: shape layout (D,H,W) but indexing is (w,h,d)
     assert_close(nxyz[0, 0, 0], torch.tensor([-1.0, -1.0, -1.0]))
@@ -158,11 +157,11 @@ def test_ray_evaluate():
     d = torch.tensor([[-1.0, 0.0, 0.0]]).expand(10, 3)
     t = torch.linspace(0, 2.0, 10).unsqueeze(-1)
 
-    x = geo.evaluate_ray(o, d, t)  # x is (10,3)
+    x = functional.evaluate_ray(o, d, t)  # x is (10,3)
     assert_close(x[..., 0], torch.linspace(2.0, 0.0, 10))
     assert_close(x[..., 1], torch.tensor([0.5]).expand(10))
     assert_close(x[..., 2], torch.tensor([0.0]).expand(10))
 
     t = torch.randn(30, 20, 10, 1)
-    x = geo.evaluate_ray(o, d, t)  # x is (30,20,10,3)
+    x = functional.evaluate_ray(o, d, t)  # x is (30,20,10,3)
     assert x.shape == (30, 20, 10, 3)

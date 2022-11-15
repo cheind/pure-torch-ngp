@@ -44,3 +44,6 @@ def rotation_matrix(axis: torch.Tensor, theta: torch.Tensor) -> torch.Tensor:
     R += torch.sin(theta).view(batch_shape + (1, 1)) * S
     R += (1.0 - torch.cos(theta)).view(batch_shape + (1, 1)) * (S @ S)
     return R
+
+
+__all__ = ["hom", "dehom", "rotation_matrix"]
