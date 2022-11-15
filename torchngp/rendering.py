@@ -1,3 +1,5 @@
+from typing import Literal, Optional
+from collections import defaultdict
 import torch
 
 from . import radiance
@@ -7,33 +9,44 @@ from . import geometric
 from . import filtering
 from .harmonics import rsh_cart_3
 
+MAPKEY = Literal["color", "depth", "alpha"]
+
 
 class RadianceRenderer(torch.nn.Module):
     def __init__(
         self,
         aabb: torch.Tensor,
         filter: filtering.SpatialFilter = None,
+        ray_extension: float = 2.0,
     ) -> None:
         super().__init__()
-        self.register_buffer("aabb", aabb)
         self.filter = filter or filtering.BoundsFilter()
+        self.register_buffer("aabb", aabb)
         self.aabb: torch.Tensor
+        self.ray_extension = ray_extension
 
-    def render_uv(
+    def trace_uv(
         self,
         rf: radiance.RadianceField,
         cam: cameras.MultiViewCamera,
         uv: torch.Tensor,
-        ray_td: float = None,
-        booster: float = 1.0,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        if ray_td is None:
-            ray_td = torch.norm(self.aabb[1] - self.aabb[0]) / 1024
+        tsampler: sampling.RayStepSampler,
+        which_maps: Optional[set[MAPKEY]] = None,
+    ) -> dict[MAPKEY, Optional[torch.Tensor]]:
+        # if ray_td is None:
+        #     ray_td = torch.norm(self.aabb[1] - self.aabb[0]) / 1024
+        if which_maps is None:
+            which_maps = {"color", "alpha"}
 
-        # Output (N,...,C), (N,...,1)
-        batch_shape = uv.shape[:-1]
-        out_color = uv.new_zeros(batch_shape + (rf.n_color_dims,))
-        out_alpha = uv.new_zeros(batch_shape + (1,))
+        # Output alloc
+        bshape = uv.shape[:-1]
+        result = defaultdict(None)
+        if "color" in which_maps:
+            result["color"] = uv.new_zeros(bshape + (rf.n_color_dims,))
+        if "alpha" in which_maps:
+            result["alpha"] = uv.new_zeros(bshape + (1,))
+        if "depth" in which_maps:
+            result["depth"] = uv.new_zeros(bshape + (1,))
 
         rays = geometric.RayBundle.create_world_rays(cam, uv)
         rays = rays.intersect_aabb(self.aabb)
@@ -41,28 +54,75 @@ class RadianceRenderer(torch.nn.Module):
         active_rays = rays.filter_by_mask(active_mask)
 
         if active_rays.d.numel() == 0:
-            return out_color, out_alpha
+            return result
 
-        ts = sampling.sample_ray_step_stratified(
-            active_rays.tnear, active_rays.tfar, n_samples=512
-        )  # TODO: in sample consider that we are not having normalized dirs
+        # Sample along rays
+        ts = tsampler(active_rays)
 
-        ts_color, ts_density = self._query_radiance_field(rf, active_rays, ts)
-
-        # Integrate colors along rays
-        ts_weights = radiance.integrate_timesteps(
-            ts_density, ts, active_rays.dnorm, tfinal=active_rays.tfar + booster
+        # Query radiance field at sample locations.
+        ts_color, ts_density = self._query_radiance_field(
+            rf,
+            active_rays,
+            ts,
         )
-        ts_final_color = radiance.color_map(ts_color, ts_weights)
-        ts_final_alpha = radiance.alpha_map(ts_weights)
 
-        out_color[active_mask] = ts_final_color
-        out_alpha[active_mask] = ts_final_alpha
+        # Compute integration weights
+        ts_weights = radiance.integrate_timesteps(
+            ts_density,
+            ts,
+            active_rays.dnorm,
+            tfinal=active_rays.tfar + self.ray_extension,
+        )
 
-        return out_color, out_alpha
+        # Compute result maps
+        if "color" in which_maps:
+            result["color"][active_mask] = radiance.color_map(ts_color, ts_weights)
+        if "alpha" in which_maps:
+            result["alpha"][active_mask] = radiance.alpha_map(ts_weights)
+        if "depth" in which_maps:
+            result["depth"][active_mask] = radiance.depth_map(ts, ts_weights)
+
+        return result
+
+    def trace_maps(
+        self,
+        rf: radiance.RadianceField,
+        cam: cameras.MultiViewCamera,
+        tsampler: sampling.RayStepSampler,
+        which_maps: Optional[set[MAPKEY]] = None,
+        n_samples_per_cam: int = None,
+    ) -> dict[MAPKEY, Optional[torch.Tensor]]:
+        if which_maps is None:
+            which_maps = {"color", "alpha"}
+
+        gen = sampling.generate_sequential_uv_samples(
+            camera=cam, image=None, n_samples_per_cam=n_samples_per_cam
+        )
+
+        parts = []
+        for uv, _ in gen:
+            result = self.trace_uv(
+                rf=rf,
+                cam=cam,
+                uv=uv,
+                tsampler=tsampler,
+                which_maps=which_maps,
+            )
+            parts.append(result)
+
+        N = cam.n_views
+        W, H = cam.size
+
+        result = {
+            k: torch.cat([p[k] for p in parts], 1).view(N, H, W, -1) for k in which_maps
+        }
+        return result
 
     def _query_radiance_field(
-        self, rf: radiance.RadianceField, rays: geometric.RayBundle, ts: torch.Tensor
+        self,
+        rf: radiance.RadianceField,
+        rays: geometric.RayBundle,
+        ts: torch.Tensor,
     ):
         """Query the radiance field for the given points `xyz=o + d*ts`"""
         batch_shape = ts.shape[:-1]
@@ -95,29 +155,3 @@ class RadianceRenderer(torch.nn.Module):
         out_color[mask] = color.to(out_color.dtype)
         out_density[mask] = density.to(density.dtype)
         return out_color, out_density
-
-    def render_camera_views(
-        self,
-        rf: radiance.RadianceField,
-        cam: cameras.MultiViewCamera,
-        n_samples_per_cam: int = None,
-        booster: float = 1.0,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-
-        gen = sampling.generate_sequential_uv_samples(
-            camera=cam, image=None, n_samples_per_cam=n_samples_per_cam
-        )
-
-        color_parts = []
-        alpha_parts = []
-        for uv, _ in gen:
-            color, alpha = self.render_uv(rf, cam, uv, booster=booster)
-            color_parts.append(color)
-            alpha_parts.append(alpha)
-
-        N = cam.n_views
-        C = color_parts[0].shape[-1]
-        W, H = cam.size
-        color = torch.cat(color_parts, 1).view(N, H, W, C)
-        alpha = torch.cat(alpha_parts, 1).view(N, H, W, 1)
-        return color, alpha

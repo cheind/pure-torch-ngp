@@ -18,7 +18,6 @@ def test_bounds_filter():
 def test_occupancy_grid_filter_deterministic():
     rf = ColorGradientRadianceField(surface_dim=0, surface_pos=0.0, density_scale=1.0)
     f = filtering.OccupancyGridFilter(
-        rf,
         res=4,
         update_interval=1,
         update_decay=1.0,
@@ -27,7 +26,7 @@ def test_occupancy_grid_filter_deterministic():
         density_initial=0.0,
         density_threshold=0.0,
     )
-    f.update(1)
+    f.update(rf, 1)
 
     # Note dim order is DHW and indexing is xyz. The plane in color gradient field
     # is parallel to x. Plane is at zero in NDC, so at right most x border we have
@@ -47,7 +46,6 @@ def test_occupancy_grid_filter_deterministic():
 def test_occupancy_grid_filter_non_deterministic():
     rf = ColorGradientRadianceField(surface_dim=0, surface_pos=0.0, density_scale=1.0)
     f = filtering.OccupancyGridFilter(
-        rf,
         res=4,
         update_interval=1,
         update_decay=0.2,
@@ -56,7 +54,7 @@ def test_occupancy_grid_filter_non_deterministic():
         density_initial=0.0,
         density_threshold=0.0,
     )
-    [f.update(i) for i in range(1000)]
+    [f.update(rf, i) for i in range(1000)]
 
     # Note dim order is DHW and indexing is xyz. The plane in color gradient field
     # is parallel to x. Plane is at zero in NDC, so at right most x border we have

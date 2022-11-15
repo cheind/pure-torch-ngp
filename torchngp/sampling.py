@@ -1,9 +1,10 @@
-from typing import Iterator, Optional
+from typing import Iterator, Optional, Protocol
 import torch
 import torch.nn.functional as F
 import torch.distributions as D
 
 from .cameras import MultiViewCamera
+from .geometric import RayBundle
 
 
 def generate_random_uv_samples(
@@ -276,6 +277,33 @@ def sample_ray_step_informed(
     t = t.clamp(tnear, tfar).movedim(-1, 0).unsqueeze(-1).contiguous()  # (T,N,...,1)
 
     return t
+
+
+class RayStepSampler(Protocol):
+    """Protocol for sampling timestep values along rays.
+
+    Note that ray directions are not normalized.
+
+    """
+
+    def __call__(self, rays: RayBundle) -> torch.Tensor:
+        """Sample timestep values
+
+        Params:
+            rays: (N,...) bundle of rays
+
+        Returns:
+            ts: (T,N,...,1) timestep samples for each ray.
+        """
+        ...
+
+
+class StratifiedRayStepSampler(RayStepSampler):
+    def __init__(self, n_samples: int = 128) -> None:
+        self.n_samples = n_samples
+
+    def __call__(self, rays: RayBundle) -> torch.Tensor:
+        return sample_ray_step_stratified(rays.tnear, rays.tfar, self.n_samples)
 
 
 def _sample_features_uv(
