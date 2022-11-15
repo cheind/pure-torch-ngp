@@ -5,15 +5,15 @@ import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from .. import io, radiance, rendering, cameras, sampling, training, filtering
+from .. import io, radiance, rendering, geometric, sampling, training, filtering
 
 
 def train(
     *,
     nerf: radiance.NeRF,
     aabb: torch.Tensor,
-    train_mvs: tuple[cameras.MultiViewCamera, torch.Tensor],
-    test_mvs: tuple[cameras.MultiViewCamera, torch.Tensor],
+    train_mvs: tuple[geometric.MultiViewCamera, torch.Tensor],
+    test_mvs: tuple[geometric.MultiViewCamera, torch.Tensor],
     n_rays_batch: int,
     n_rays_mini_batch: int,
     lr: float = 1e-2,

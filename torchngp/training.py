@@ -7,13 +7,13 @@ import torch.nn
 import torch.utils.data
 import torch.nn.functional as F
 
-from torchngp import rendering, radiance, cameras, sampling, plotting
+from torchngp import rendering, radiance, geometric, sampling, plotting
 
 
 class MultiViewDataset(torch.utils.data.IterableDataset):
     def __init__(
         self,
-        camera: cameras.MultiViewCamera,
+        camera: geometric.MultiViewCamera,
         images: torch.Tensor,
         n_samples_per_cam: int = None,
         random: bool = True,
@@ -61,7 +61,9 @@ def create_fwd_bwd_closure(
     n_acc_steps: int,
 ):
     # https://pytorch.org/docs/stable/notes/amp_examples.html#gradient-accumulation
-    def run_fwd_bwd(cam: cameras.MultiViewCamera, uv: torch.Tensor, rgba: torch.Tensor):
+    def run_fwd_bwd(
+        cam: geometric.MultiViewCamera, uv: torch.Tensor, rgba: torch.Tensor
+    ):
         B, N, M, C = rgba.shape
         maps = {"color", "alpha"}
 
@@ -98,7 +100,7 @@ def create_fwd_bwd_closure(
 def render_images(
     rf: radiance.RadianceField,
     renderer: rendering.RadianceRenderer,
-    cam: cameras.MultiViewCamera,
+    cam: geometric.MultiViewCamera,
     tsampler: sampling.RayStepSampler,
     use_amp: bool,
     n_samples_per_cam: int,

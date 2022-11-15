@@ -3,13 +3,12 @@ import torch
 import torch.nn.functional as F
 
 
-from . import cameras
 from . import geometric
 from . import functional
 
 
 def generate_random_uv_samples(
-    camera: cameras.MultiViewCamera,
+    camera: geometric.MultiViewCamera,
     image: torch.Tensor = None,
     n_samples_per_cam: int = None,
     subpixel: bool = True,
@@ -58,7 +57,7 @@ def generate_random_uv_samples(
 
 
 def generate_sequential_uv_samples(
-    camera: cameras.MultiViewCamera,
+    camera: geometric.MultiViewCamera,
     image: torch.Tensor = None,
     n_samples_per_cam: int = None,
     n_passes: int = 1,

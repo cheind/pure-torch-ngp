@@ -3,7 +3,6 @@ from collections import defaultdict
 import torch
 
 from . import radiance
-from . import cameras
 from . import sampling
 from . import geometric
 from . import filtering
@@ -28,7 +27,7 @@ class RadianceRenderer(torch.nn.Module):
     def trace_uv(
         self,
         rf: radiance.RadianceField,
-        cam: cameras.MultiViewCamera,
+        cam: geometric.MultiViewCamera,
         uv: torch.Tensor,
         tsampler: sampling.RayStepSampler,
         which_maps: Optional[set[MAPKEY]] = None,
@@ -87,7 +86,7 @@ class RadianceRenderer(torch.nn.Module):
     def trace_maps(
         self,
         rf: radiance.RadianceField,
-        cam: cameras.MultiViewCamera,
+        cam: geometric.MultiViewCamera,
         tsampler: sampling.RayStepSampler,
         which_maps: Optional[set[MAPKEY]] = None,
         n_samples_per_cam: int = None,

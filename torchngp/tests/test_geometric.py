@@ -1,15 +1,13 @@
 import torch
 from torch.testing import assert_close
 
-from torchngp import geometric as geo
-from torchngp.cameras import MultiViewCamera
-from torchngp.functional.linalg import rotation_matrix
+from torchngp import geometric
 from torchngp import functional
 
 
 def test_world_rays_shape():
     H, W = 5, 10
-    cam = MultiViewCamera(
+    cam = geometric.MultiViewCamera(
         focal_length=[2.0, 2.0],
         principal_point=[(W + 1) / 2 - 1, (H + 1) / 2 - 1],
         size=[W, H],
@@ -19,7 +17,7 @@ def test_world_rays_shape():
         tfar=10,
     )
 
-    rays = geo.RayBundle.make_world_rays(cam, cam.make_uv_grid())
+    rays = geometric.RayBundle.make_world_rays(cam, cam.make_uv_grid())
 
     assert rays.o.shape == (2, H, W, 3)
     assert rays.d.shape == (2, H, W, 3)
@@ -30,18 +28,20 @@ def test_world_rays_shape():
 def test_world_rays_origins_directions():
 
     H, W = 3, 3
-    cam = MultiViewCamera(
+    cam = geometric.MultiViewCamera(
         focal_length=[2.0, 2.0],
         principal_point=[1.0, 1.0],
         size=[W, H],
-        R=rotation_matrix(torch.tensor([0.0, 0.0, 1.0]), torch.tensor(torch.pi)),
+        R=functional.rotation_matrix(
+            torch.tensor([0.0, 0.0, 1.0]), torch.tensor(torch.pi)
+        ),
         T=torch.tensor([1.0, 2.0, 3.0]),
         tnear=0,
         tfar=100,
     )
     cam = cam[[0, 0]]  # twice the same cam
 
-    rays = geo.RayBundle.make_world_rays(cam, cam.make_uv_grid())
+    rays = geometric.RayBundle.make_world_rays(cam, cam.make_uv_grid())
     assert_close(rays.tnear, torch.tensor([0.0]).expand_as(rays.tnear))
     assert_close(rays.tfar, torch.tensor([100.0]).expand_as(rays.tnear))
 
