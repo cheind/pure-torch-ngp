@@ -148,11 +148,20 @@ def main():
     logging.basicConfig(level=logging.INFO)
     dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
-    camera, aabb, gt_images = io.load_scene_from_json(
-        "./data/suzanne/transforms.json", load_images=True
+    # camera, aabb, gt_images = io.load_scene_from_json(
+    #     "./data/suzanne/transforms.json", load_images=True
+    # )
+    # train_mvs = camera[:-2], gt_images[:-2]
+    # val_mvs = camera[-2:], gt_images[-2:]
+
+    camera_train, aabb, gt_images_train = io.load_scene_from_json(
+        "./data/lego/transforms_train.json", load_images=True
     )
-    train_mvs = camera[:-2], gt_images[:-2]
-    val_mvs = camera[-2:], gt_images[-2:]
+    camera_val, _, gt_images_val = io.load_scene_from_json(
+        "./data/lego/transforms_val.json", load_images=True
+    )
+    train_mvs = (camera_train, gt_images_train)
+    val_mvs = (camera_val[:3], gt_images_val[:3])
 
     nerf_kwargs = dict(
         n_colors=3,
