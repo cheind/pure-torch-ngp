@@ -77,9 +77,7 @@ def create_fwd_bwd_closure(
             gt_rgb_mixed = rgb * alpha + noise * (1 - alpha)
 
             # Predict
-            pred_maps = renderer.trace_uv(
-                rf, cam, uv, tsampler, which_maps=maps, booster=2.0
-            )
+            pred_maps = renderer.trace_uv(rf, cam, uv, tsampler, which_maps=maps)
             pred_rgb, pred_alpha = pred_maps["color"], pred_maps["alpha"]
             # Mix
             pred_rgb_mixed = pred_rgb * pred_alpha + noise * (1 - pred_alpha)
@@ -107,7 +105,7 @@ def render_images(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     with torch.cuda.amp.autocast(enabled=use_amp):
         maps = renderer.trace_maps(
-            rf, cam, tsampler=tsampler, n_samples_per_cam=n_samples_per_cam, booster=2
+            rf, cam, tsampler=tsampler, n_samples_per_cam=n_samples_per_cam
         )
         pred_rgba = torch.cat((maps["color"], maps["alpha"]), -1).permute(0, 3, 1, 2)
     return pred_rgba

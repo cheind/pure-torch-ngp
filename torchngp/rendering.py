@@ -17,11 +17,13 @@ class RadianceRenderer(torch.nn.Module):
         self,
         aabb: torch.Tensor,
         filter: filtering.SpatialFilter = None,
+        ray_extension: float = 2.0,
     ) -> None:
         super().__init__()
         self.filter = filter or filtering.BoundsFilter()
         self.register_buffer("aabb", aabb)
         self.aabb: torch.Tensor
+        self.ray_extension = ray_extension
 
     def trace_uv(
         self,
@@ -30,7 +32,6 @@ class RadianceRenderer(torch.nn.Module):
         uv: torch.Tensor,
         tsampler: sampling.RayStepSampler,
         which_maps: Optional[set[MAPKEY]] = None,
-        booster: float = 1.0,
     ) -> dict[MAPKEY, Optional[torch.Tensor]]:
         # if ray_td is None:
         #     ray_td = torch.norm(self.aabb[1] - self.aabb[0]) / 1024
@@ -67,7 +68,10 @@ class RadianceRenderer(torch.nn.Module):
 
         # Compute integration weights
         ts_weights = radiance.integrate_timesteps(
-            ts_density, ts, active_rays.dnorm, tfinal=active_rays.tfar + booster
+            ts_density,
+            ts,
+            active_rays.dnorm,
+            tfinal=active_rays.tfar + self.ray_extension,
         )
 
         # Compute result maps
@@ -87,7 +91,6 @@ class RadianceRenderer(torch.nn.Module):
         tsampler: sampling.RayStepSampler,
         which_maps: Optional[set[MAPKEY]] = None,
         n_samples_per_cam: int = None,
-        booster: float = 1.0,
     ) -> dict[MAPKEY, Optional[torch.Tensor]]:
         if which_maps is None:
             which_maps = {"color", "alpha"}
@@ -104,7 +107,6 @@ class RadianceRenderer(torch.nn.Module):
                 uv=uv,
                 tsampler=tsampler,
                 which_maps=which_maps,
-                booster=booster,
             )
             parts.append(result)
 
