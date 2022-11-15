@@ -131,5 +131,6 @@ dmypy.json
 
 
 data/fox/
+outputs/
 tmp/*
 !tmp/__keep__
