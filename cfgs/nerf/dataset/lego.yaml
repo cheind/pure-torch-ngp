@@ -1,0 +1,6 @@
+train:
+    path: data/lego/transforms_train.json
+    slice: null
+val:
+    path: data/lego/transforms_val.json
+    slice: :2

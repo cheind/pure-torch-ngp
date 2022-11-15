@@ -1,0 +1,3 @@
+train:
+    path: "data/fox/transforms.json"
+    slice:

@@ -139,7 +139,7 @@ def load_scene_from_json(
     if load_images:
         images = torch.stack(view_images, 0).to(device)
 
-    _logger.info(
+    _logger.debug(
         f"Imported {camera.n_views} poses from '{str(path)}', skipped"
         f" {n_skipped} poses and fixed {n_fixed} poses. Bounds set to {aabb}."
     )

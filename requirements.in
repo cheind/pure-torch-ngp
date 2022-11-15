@@ -4,6 +4,7 @@ numpy
 matplotlib
 tqdm
 pytransform3d
+hydra-core
 torch==1.12.1+cu113
 torchvision==0.13.1+cu113
 
