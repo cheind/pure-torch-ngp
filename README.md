@@ -8,6 +8,8 @@ This repository contains an inofficial implementation of
 
 based strictly on PyTorch functionality. Currently, the tasks of learning Neural Radiance Fields and approximating Gigapixel images are implemented.
 
+![](etc/lego_val.png?raw=true)
+
 ## NeRF Features
 
 -   Support for multi-level hash encodings using a hybrid dense/sparse approach
