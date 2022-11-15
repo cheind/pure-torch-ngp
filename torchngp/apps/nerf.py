@@ -4,7 +4,6 @@ import time
 import torch
 import torch.nn.functional as F
 from tqdm import tqdm
-from PIL import Image
 
 from .. import io, radiance, rendering, cameras, sampling, training, filtering
 

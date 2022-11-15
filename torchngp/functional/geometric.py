@@ -138,7 +138,6 @@ def unproject_uv(
     Returns:
         xyz: (N,...,3) tensor of coordinates.
     """
-    N = uv.shape[0]
     mbatch = uv.shape[:-1]
 
     if not torch.is_tensor(depth):
