@@ -2,12 +2,12 @@ import torch
 from torch.testing import assert_close
 
 
-from torchngp import cameras
+from torchngp import geometric
 
 
 def test_camera_shapes():
     H, W = 5, 10
-    cam = cameras.MultiViewCamera(
+    cam = geometric.MultiViewCamera(
         focal_length=[2.0, 2.0],
         principal_point=[(W + 1) / 2 - 1, (H + 1) / 2 - 1],
         size=[W, H],
@@ -25,7 +25,7 @@ def test_camera_shapes():
     assert_close(cam.tnear, torch.tensor([0.0]))
     assert_close(cam.tfar, torch.tensor([10.0]))
 
-    cam = cameras.MultiViewCamera(
+    cam = geometric.MultiViewCamera(
         focal_length=[2.0, 2.0],
         principal_point=[(W + 1) / 2 - 1, (H + 1) / 2 - 1],
         size=[W, H],
@@ -46,7 +46,7 @@ def test_camera_shapes():
 
 def test_camera_grid():
     H, W = 5, 10
-    cam = cameras.MultiViewCamera(
+    cam = geometric.MultiViewCamera(
         focal_length=[2.0, 2.0],
         principal_point=[(W + 1) / 2 - 1, (H + 1) / 2 - 1],
         size=[W, H],

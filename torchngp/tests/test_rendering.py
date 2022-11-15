@@ -1,7 +1,7 @@
 import torch
 from torch.testing import assert_close
 
-from torchngp import cameras, rendering, sampling
+from torchngp import rendering, sampling, geometric
 
 from .test_radiance import ColorGradientRadianceField
 
@@ -15,7 +15,7 @@ def test_render_volume_stratified():
         cmap="jet",
     )
 
-    cam = cameras.MultiViewCamera(
+    cam = geometric.MultiViewCamera(
         focal_length=[50.0, 50.0],
         principal_point=[15.0, 15.0],
         size=[31, 31],

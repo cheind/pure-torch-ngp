@@ -28,10 +28,12 @@ import torch.nn
 import torch.nn.functional as F
 import torch.optim
 
-from torchngp import metrics, encoding, geometric
+from torchngp import encoding, functional
 
 from PIL import Image
 from tqdm import tqdm
+
+from torchngp.functional import metrics
 
 
 class CompressionModule(torch.nn.Module):
@@ -120,8 +122,8 @@ def main():
     img = np.asarray(Image.open(args.image))
     img = torch.tensor(img).permute(2, 0, 1).float() / 255.0
     img = img.to(dev)
-    coords = geometric.make_grid(img.shape[1:], indexing="xy", device=dev)
-    ncoords = geometric.normalize_uv(coords, coords.shape[:-1], indexing="xy")
+    coords = functional.make_grid(img.shape[1:], indexing="xy", device=dev)
+    ncoords = functional.normalize_uv(coords, coords.shape[:-1], indexing="xy")
 
     # Compute image stats
     mean, std = img.mean((1, 2), keepdim=True), img.std((1, 2), keepdim=True)

@@ -9,7 +9,7 @@ import torch
 import torch.nn.functional as F
 from PIL import Image
 
-from .cameras import MultiViewCamera
+from . import geometric
 
 _logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ def load_scene_from_json(
     load_images: bool = True,
     device: torch.device = None,
     dtype=torch.float32,
-) -> tuple[MultiViewCamera, torch.Tensor, Optional[torch.Tensor]]:
+) -> tuple[geometric.MultiViewCamera, torch.Tensor, Optional[torch.Tensor]]:
     """Loads scene information from nvidia compatible transforms.json
 
     Params:
@@ -125,7 +125,7 @@ def load_scene_from_json(
         cx = data["cx"]
         cy = data["cy"]
 
-    camera = MultiViewCamera(
+    camera = geometric.MultiViewCamera(
         focal_length=[fl_x, fl_y],
         principal_point=[cx, cy],
         size=[W, H],

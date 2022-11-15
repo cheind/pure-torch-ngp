@@ -2,7 +2,7 @@ from typing import Protocol
 
 import torch
 
-from . import geometric
+from . import functional
 from .radiance import RadianceField
 
 
@@ -90,7 +90,7 @@ class OccupancyGridFilter(BoundsFilter, torch.nn.Module):
             M = int(self.update_selection_rate * self.res**3)
             ijk = torch.randint(0, self.res, size=(M, 3), device=self.grid.device)
         else:
-            ijk = geometric.make_grid(
+            ijk = functional.make_grid(
                 (self.res, self.res, self.res),
                 indexing="xy",
                 device=self.grid.device,

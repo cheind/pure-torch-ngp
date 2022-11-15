@@ -38,3 +38,6 @@ def peak_signal_noise_ratio(
     mse[mask] = torch.finfo(x.dtype).tiny
     value = 20 * torch.log10(torch.as_tensor(datarange)) - 10 * torch.log10(mse)
     return value, mask
+
+
+__all__ = ["peak_signal_noise_ratio"]

@@ -10,7 +10,7 @@ import torch
 import torch.nn
 import torch.nn.functional as F
 
-from . import geometric
+from . import functional
 
 
 @dataclass
@@ -194,7 +194,7 @@ class MultiLevelHybridHashEncoding(torch.nn.Module):
 
     @torch.no_grad()
     def _compute_dense_indices(self, li: LevelInfo) -> torch.LongTensor:
-        index_coords = geometric.make_grid(li.shape, indexing="xy")
+        index_coords = functional.make_grid(li.shape, indexing="xy")
         if not li.hashing:
             ids = _hash_ravel(index_coords, li.shape)
         else:

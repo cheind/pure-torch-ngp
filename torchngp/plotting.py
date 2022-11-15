@@ -7,10 +7,10 @@ import torch
 import torch.nn.functional as F
 from torchvision.utils import make_grid
 
-from .cameras import MultiViewCamera
+from . import geometric
 
 
-def plot_camera(cam: MultiViewCamera, ax=None, **kwargs):
+def plot_camera(cam: geometric.MultiViewCamera, ax=None, **kwargs):
     """Plot camera objects in 3D."""
     if ax is None:
         ax = pu.make_3d_axis(unit="m", ax_s=1.0)
