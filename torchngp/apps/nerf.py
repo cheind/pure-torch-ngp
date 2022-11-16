@@ -75,7 +75,7 @@ def train(cfg: DictConfig):
     tsampler: sampling.RayStepSampler = hydra.utils.instantiate(
         cfg.setup.ray_tsampler,
     )
-    renderer = rendering.RadianceRenderer(aabb, sfilter).to(dev)
+    renderer = rendering.RadianceRenderer(aabb, sfilter, ray_extension=1).to(dev)
 
     # Determine batch size
 
