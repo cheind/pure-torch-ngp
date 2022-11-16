@@ -1,8 +1,0 @@
-n_colors: 3
-n_hidden: 64
-n_encodings: 262144 # 2**18
-n_color_cond: 16
-min_res: 32
-max_res: 512
-max_n_dense: 16777216 # 256**3
-is_hdr: false
