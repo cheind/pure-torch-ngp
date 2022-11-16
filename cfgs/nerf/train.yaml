@@ -1,7 +1,7 @@
 train:
     job_dir: ${hydra:run.dir}
     log_level: debug
-    n_rays_batch: 16384 # 2**16
+    n_rays_batch: 16384 # 2**14
     n_rays_minibatch: 16384 # 2**14
     n_worker: 4
     preload: false
@@ -19,7 +19,7 @@ train:
         factor: 0.75
         patience: 20
         min_lr: 1e-4
-    val_interval: 1e7
+    val_interval: 1e6
     val_min_loss: 5e-3
 datasets: ???
 setup:
@@ -39,11 +39,14 @@ setup:
         _target_: torchngp.filtering.OccupancyGridFilter
         res: 64
         density_initial: 0.02
+        density_threshold: 0.01
         update_interval: 8
+        update_selection_rate: 0.25
+        update_decay: 0.7
         stochastic_test: true
     ray_tsampler:
         _target_: torchngp.sampling.StratifiedRayStepSampler
-        n_samples: 512
+        n_samples: 256
 
 defaults:
     - datasets: lego
