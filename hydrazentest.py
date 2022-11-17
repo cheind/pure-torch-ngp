@@ -123,12 +123,25 @@ Float3 = tuple[float, float, float]
 # )
 # print(to_yaml(SceneConfig))
 
-from torchngp.conf import SceneConfig, CameraConf
+from hydra_zen import save_as_yaml, load_from_yaml
+from torchngp.conf import SceneConfig, CameraConf, Scene
 
 scenecfg = SceneConfig(cams={"cam_val": CameraConf(1.0, (100, 200))})
 print(to_yaml(scenecfg))
 scene = instantiate(scenecfg)
+print(list(scene.volume.rf.parameters()))
+
+torch.save(scene.state_dict(), "test.pth")
+save_as_yaml(scenecfg, "test.yaml")
+
+
+scenecfg = load_from_yaml("test.yaml")
+scene: Scene = instantiate(scenecfg)
+scene.load_state_dict(torch.load("test.pth"))
+
 print(scene)
+print(list(scene.volume.rf.parameters()))
+
 
 # print(to_yaml(SceneConfig))
 

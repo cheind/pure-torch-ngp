@@ -23,6 +23,7 @@ class RadianceField(torch.nn.Module):
     def __init__(self, res: int = 64) -> None:
         super().__init__()
         self.res = res
+        self.params = torch.nn.Linear(3, 3)
 
 
 class SpatialFilter(torch.nn.Module):
