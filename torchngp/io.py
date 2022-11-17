@@ -139,9 +139,37 @@ def load_scene_from_json(
     if load_images:
         images = torch.stack(view_images, 0).to(device)
 
-    _logger.info(
+    _logger.debug(
         f"Imported {camera.n_views} poses from '{str(path)}', skipped"
         f" {n_skipped} poses and fixed {n_fixed} poses. Bounds set to {aabb}."
     )
 
     return camera, aabb, images
+
+
+class MultiViewScene(torch.nn.Module):
+    def __init__(
+        self, path: Path, load_images: bool = True, slice: Optional[str] = None
+    ) -> None:
+        super().__init__()
+        camera, aabb, images = load_scene_from_json(path, load_images=load_images)
+
+        if slice is not None:
+            s = _string_to_slice(slice)
+            camera = camera[s]
+            if images is not None:
+                images = images[s]
+
+        self.camera = camera
+        self.register_buffer("images", images)
+        self.register_buffer("aabb", aabb)
+        self.images: Optional[torch.Tensor]
+        self.aabb: torch.Tensor
+
+
+def _string_to_slice(sstr):
+    # https://stackoverflow.com/questions/43089907/using-a-string-to-define-numpy-array-slice
+    return tuple(
+        slice(*(int(i) if i else None for i in part.strip().split(":")))
+        for part in sstr.strip("[]").split(",")
+    )
