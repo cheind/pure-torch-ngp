@@ -5,13 +5,6 @@
 #    pip-compile requirements.in
 #
 --extra-index-url https://download.pytorch.org/whl/cu113
---trusted-host pypi.python.org
---trusted-host pypi.org
---trusted-host files.pythonhosted.org
---trusted-host raw.githubusercontent.com
---trusted-host github.com
---trusted-host download.pytorch.org
---trusted-host gitlab.profactor.at
 
 antlr4-python3-runtime==4.9.3
     # via
@@ -23,6 +16,8 @@ certifi==2022.9.24
     # via requests
 charset-normalizer==2.1.1
     # via requests
+colorama==0.4.6
+    # via tqdm
 contourpy==1.0.5
     # via matplotlib
 cycler==0.11.0
@@ -30,6 +25,10 @@ cycler==0.11.0
 fonttools==4.37.4
     # via matplotlib
 hydra-core==1.2.0
+    # via
+    #   -r requirements.in
+    #   hydra-zen
+hydra-zen==0.8.0
     # via -r requirements.in
 idna==3.4
     # via requests
@@ -87,6 +86,7 @@ tqdm==4.64.1
     # via -r requirements.in
 typing-extensions==4.4.0
     # via
+    #   hydra-zen
     #   torch
     #   torchvision
 urllib3==1.26.12
