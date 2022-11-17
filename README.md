@@ -1,6 +1,6 @@
 # pure-torch-ngp
 
-This repository contains an inofficial implementation of
+This repository contains an unofficial implementation of
 
 > "Instant Neural Graphics Primitives with a Multiresolution Hash Encoding" by
 > Thomas Müller, Alex Evans, Christoph Schied, Alexander Keller @
