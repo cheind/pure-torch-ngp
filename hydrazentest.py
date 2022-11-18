@@ -9,6 +9,9 @@ from torchngp.config import (
     MultiViewCameraConf,
     Vecs3Conf,
     VolumeConf,
+    NeRFTrainerConf,
+    RadianceRendererConf,
+    StratifiedRayStepSamplerConf,
 )
 
 from torchngp import io
@@ -53,10 +56,10 @@ print(cams[0].load_images().shape)
 # # print(scene)
 # print(list(scene.parameters()))
 
-scenecfg = io.load_scene_from_json(
-    ["data/suzanne/transforms.json", "data/trivial/transforms.json"]
-)
-print(to_yaml(scenecfg))
+# scenecfg = io.load_scene_from_json(
+#     ["data/suzanne/transforms.json", "data/trivial/transforms.json"]
+# )
+# print(to_yaml(scenecfg))
 
 # Conf = make_config(scene=scenecfg_loaded, volume=VolumeConf(aabb="${scene.aabb}"))
 # cfg = Conf()
@@ -71,3 +74,24 @@ print(to_yaml(scenecfg))
 
 # https://mit-ll-responsible-ai.github.io/hydra-zen/generated/hydra_zen.instantiate.html
 # for aabb?
+
+# trainercfg = NeRFTrainerConf(scene=SceneConf(), volume=VolumeConf())
+
+
+from torchngp import io
+from hydra_zen import make_custom_builds_fn
+
+builds = make_custom_builds_fn(populate_full_signature=True)
+LoadSceneFromJsonConf = builds(io.load_scene_from_json)
+
+NeRFConf = make_config(
+    scene=io.load_scene_from_json("data/suzanne/transforms.json"),
+    volume=VolumeConf(aabb="${scene.aabb}"),
+    renderer=RadianceRendererConf(),
+    tsampler=StratifiedRayStepSamplerConf(),
+    trainer=NeRFTrainerConf(),
+)
+
+nconf = NeRFConf()
+print(to_yaml(nconf))
+inst = instantiate(nconf)
