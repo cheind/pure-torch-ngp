@@ -8,7 +8,7 @@ import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from .. import io, radiance, rendering, sampling, training, filtering
+from .. import io, radiance, rendering, sampling, training, filtering, volumes
 
 
 _logger = logging.getLogger("nerf")
@@ -74,8 +74,10 @@ def train(cfg: DictConfig):
     )
     tsampler: sampling.RayStepSampler = hydra.utils.instantiate(
         cfg.setup.ray_tsampler,
-    )
-    renderer = rendering.RadianceRenderer(aabb, sfilter, ray_extension=1).to(dev)
+    ).to(dev)
+    renderer = rendering.RadianceRenderer(ray_extension=1).to(dev)
+
+    volume = volumes.Volume(aabb[0].tolist(), aabb[1].tolist(), nerf, sfilter).to(dev)
 
     # Determine batch size
 
@@ -130,7 +132,7 @@ def train(cfg: DictConfig):
 
     scaler = torch.cuda.amp.GradScaler(enabled=cfg.train.use_amp)
     fwd_bwd_fn = training.create_fwd_bwd_closure(
-        nerf, renderer, tsampler, scaler, n_acc_steps=n_acc_steps
+        volume, renderer, tsampler, scaler, n_acc_steps=n_acc_steps
     )
 
     pbar_postfix = {"loss": 0.0}
@@ -165,7 +167,7 @@ def train(cfg: DictConfig):
                 pbar_postfix["loss"] <= cfg.train.val_min_loss
             ):
                 val_rgba = training.render_images(
-                    nerf,
+                    volume,
                     renderer,
                     val_camera_dev,
                     tsampler,
@@ -178,7 +180,7 @@ def train(cfg: DictConfig):
                 )
                 render_train_cams = train_camera_dev[:2].to(dev)
                 train_rgba = training.render_images(
-                    nerf,
+                    volume,
                     renderer,
                     render_train_cams,
                     tsampler,

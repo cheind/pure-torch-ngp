@@ -113,8 +113,9 @@ class RayStepSampler(Protocol):
         ...
 
 
-class StratifiedRayStepSampler(RayStepSampler):
+class StratifiedRayStepSampler(torch.nn.Module, RayStepSampler):
     def __init__(self, n_samples: int = 128) -> None:
+        super().__init__()
         self.n_samples = n_samples
 
     def __call__(self, rays: geometric.RayBundle) -> torch.Tensor:
