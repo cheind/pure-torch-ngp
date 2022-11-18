@@ -11,8 +11,9 @@ def test_camera_shapes():
         focal_length=[2.0, 2.0],
         principal_point=[(W + 1) / 2 - 1, (H + 1) / 2 - 1],
         size=[W, H],
-        R=torch.eye(3),
-        T=torch.tensor([1.0, 2.0, 3.0]),
+        rvec=torch.zeros(3),
+        tvec=torch.tensor([1.0, 2.0, 3.0]),
+        image_paths=["dummy.png"],
         tnear=0,
         tfar=10,
     )
@@ -21,16 +22,17 @@ def test_camera_shapes():
     assert_close(cam.principal_point, torch.tensor([4.5, 2.0]))
     assert_close(cam.size, torch.tensor([W, H]).int())
     assert_close(cam.R, torch.eye(3).unsqueeze(0))
-    assert_close(cam.T, torch.tensor([1.0, 2.0, 3.0]).view(1, 3, 1))
+    assert_close(cam.tvec, torch.tensor([1.0, 2.0, 3.0]).view(1, 3, 1))
     assert_close(cam.tnear, torch.tensor([0.0]))
     assert_close(cam.tfar, torch.tensor([10.0]))
+    assert cam.image_paths == ["dummy.png"]
 
     cam = geometric.MultiViewCamera(
         focal_length=[2.0, 2.0],
         principal_point=[(W + 1) / 2 - 1, (H + 1) / 2 - 1],
         size=[W, H],
-        R=[torch.eye(3), torch.eye(3)],
-        T=[torch.zeros(3), torch.ones(3)],
+        rvec=[torch.zeros(3), torch.zeros(3)],
+        tvec=[torch.zeros(3), torch.ones(3)],
         tnear=0,
         tfar=10,
     )
@@ -41,7 +43,7 @@ def test_camera_shapes():
     assert_close(cam.tnear, torch.tensor([0.0]))
     assert_close(cam.tfar, torch.tensor([10.0]))
     assert_close(cam.R, torch.eye(3).expand(2, 3, 3))
-    assert_close(cam.T, torch.stack((torch.zeros(3), torch.ones(3))).view(2, 3, 1))
+    assert_close(cam.tvec, torch.stack((torch.zeros(3), torch.ones(3))).view(2, 3, 1))
 
 
 def test_camera_grid():
@@ -50,8 +52,8 @@ def test_camera_grid():
         focal_length=[2.0, 2.0],
         principal_point=[(W + 1) / 2 - 1, (H + 1) / 2 - 1],
         size=[W, H],
-        R=[torch.eye(3), torch.eye(3)],
-        T=[torch.tensor([1.0, 2.0, 3.0]), torch.tensor([1.0, 2.0, 3.0])],
+        rvec=[torch.zeros(3), torch.zeros(3)],
+        tvec=[torch.tensor([1.0, 2.0, 3.0]), torch.tensor([1.0, 2.0, 3.0])],
         tnear=0,
         tfar=10,
     )

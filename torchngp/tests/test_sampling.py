@@ -146,8 +146,8 @@ def test_generate_sequential_uv_samples():
         focal_length=[2.0, 2.0],
         principal_point=[1.0, 1.0],
         size=[W, H],
-        R=torch.eye(3),
-        T=torch.zeros(3),
+        rvec=torch.zeros(3),
+        tvec=torch.zeros(3),
         tnear=0.0,
         tfar=10.0,
     )
@@ -197,8 +197,8 @@ def test_generate_random_uv_samples():
         focal_length=[2.0, 2.0],
         principal_point=[1.0, 1.0],
         size=[W, H],
-        R=[torch.eye(3), torch.eye(3)],
-        T=[torch.zeros(3), torch.zeros(3)],
+        rvec=[torch.zeros(3), torch.zeros(3)],
+        tvec=[torch.zeros(3), torch.zeros(3)],
         tnear=0.0,
         tfar=10.0,
     )

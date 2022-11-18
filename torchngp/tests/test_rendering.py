@@ -19,8 +19,8 @@ def test_render_volume_stratified():
         focal_length=[50.0, 50.0],
         principal_point=[15.0, 15.0],
         size=[31, 31],
-        R=torch.eye(3),
-        T=torch.Tensor([0.5, 0.5, -1.0]),
+        rvec=torch.zeros(3),
+        tvec=torch.tensor([0.5, 0.5, -1.0]),
         tnear=0.0,
         tfar=10.0,
     )

@@ -10,6 +10,7 @@ import torch.nn.functional as F
 from PIL import Image
 
 from . import geometric
+from . import functional
 
 _logger = logging.getLogger(__name__)
 
@@ -70,6 +71,7 @@ def load_scene_from_json(
     Rs = []
     Ts = []
     view_images = []
+    image_paths = []
     n_skipped = 0
     n_fixed = 0
     for frame in data["frames"]:
@@ -83,9 +85,11 @@ def load_scene_from_json(
                 _logger.debug(f"Failed to find {str(imgpath)}, skipping.")
                 n_skipped += 1
                 continue
+
             img = Image.open(imgpath).convert("RGBA")
             img = torch.tensor(np.asarray(img)).to(dtype).permute(2, 0, 1) / 255.0
             view_images.append(img)
+            image_paths.append(frame["file_path"])
 
         # Handle extrinsics. Correct non-orthonormal rotations.
         # That's the case for some frames of the fox-dataset.
@@ -131,8 +135,9 @@ def load_scene_from_json(
         size=[W, H],
         tnear=0.0,
         tfar=20,
-        R=Rs,
-        T=Ts,
+        rvec=functional.so3_log(torch.stack(Rs)),
+        tvec=torch.stack(Ts, 0),
+        image_paths=image_paths,
     )
 
     images = None
@@ -153,7 +158,6 @@ class MultiViewScene(torch.nn.Module):
     ) -> None:
         super().__init__()
         camera, aabb, images = load_scene_from_json(path, load_images=load_images)
-
         if slice is not None:
             s = _string_to_slice(slice)
             camera = camera[s]

@@ -60,3 +60,14 @@ def test_rotation_vector():
     # back to rot matrices for comparison
     R = linalg.rotation_matrix(u, theta)
     assert (R_gt - R).abs().max() < 1e-8
+
+
+def test_so3():
+    R_gt = linalg.rotation_matrix(
+        torch.eye(3),
+        torch.tensor([0.0, torch.pi / 2, -torch.pi / 2]),
+    )
+    r = linalg.so3_log(R_gt)
+    R = linalg.so3_exp(r)
+
+    assert (R_gt - R).abs().max() < 1e-8

@@ -97,4 +97,26 @@ def rotation_vector(R: torch.Tensor) -> torch.Tensor:
     return u.to(R_dtype), theta.to(R_dtype)
 
 
-__all__ = ["hom", "dehom", "rotation_matrix", "rotation_vector"]
+def so3_log(R: torch.Tensor) -> torch.Tensor:
+    axis, theta = rotation_vector(R)
+    return axis * theta.unsqueeze(-1)
+
+
+def so3_exp(r: torch.Tensor) -> torch.Tensor:
+    theta = torch.linalg.vector_norm(r, dim=-1)
+    axis = torch.zeros_like(r)
+    axis[..., 0] = 1.0
+    mask = theta > 1e-7
+    axis[mask] = r[mask] / theta[mask][..., None]
+    R = rotation_matrix(axis, theta)
+    return R
+
+
+__all__ = [
+    "hom",
+    "dehom",
+    "rotation_matrix",
+    "rotation_vector",
+    "so3_log",
+    "so3_exp",
+]

@@ -11,8 +11,8 @@ def test_world_rays_shape():
         focal_length=[2.0, 2.0],
         principal_point=[(W + 1) / 2 - 1, (H + 1) / 2 - 1],
         size=[W, H],
-        R=[torch.eye(3), torch.eye(3)],
-        T=[torch.tensor([1.0, 2.0, 3.0]), torch.tensor([1.0, 2.0, 3.0])],
+        rvec=[torch.zeros(3), torch.zeros(3)],
+        tvec=[torch.tensor([1.0, 2.0, 3.0]), torch.tensor([1.0, 2.0, 3.0])],
         tnear=0,
         tfar=10,
     )
@@ -32,10 +32,12 @@ def test_world_rays_origins_directions():
         focal_length=[2.0, 2.0],
         principal_point=[1.0, 1.0],
         size=[W, H],
-        R=functional.rotation_matrix(
-            torch.tensor([0.0, 0.0, 1.0]), torch.tensor(torch.pi)
+        rvec=functional.so3_log(
+            functional.rotation_matrix(
+                torch.tensor([0.0, 0.0, 1.0]), torch.tensor(torch.pi)
+            )
         ),
-        T=torch.tensor([1.0, 2.0, 3.0]),
+        tvec=torch.tensor([1.0, 2.0, 3.0]),
         tnear=0,
         tfar=100,
     )
@@ -47,7 +49,7 @@ def test_world_rays_origins_directions():
 
     center_dir = rays.d[:, 1, 1, :]  # ray through princ. point should match z-dir of R.
 
-    assert_close(rays.o, cam.T.view(-1, 1, 1, 3).expand_as(rays.o))
+    assert_close(rays.o, cam.tvec.view(-1, 1, 1, 3).expand_as(rays.o))
     assert_close(center_dir, cam.R[..., 2])
 
 
