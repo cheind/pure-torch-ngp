@@ -2,57 +2,57 @@ import json
 import logging
 import math
 from pathlib import Path
-from typing import Optional
+from typing import Union
 
-import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image
 
-from . import geometric
-from . import functional
+from . import config, functional
 
-_logger = logging.getLogger(__name__)
+_logger = logging.getLogger("torchngp")
 
 
-def load_scene_from_json(
-    path: str,
-    load_images: bool = True,
-    device: torch.device = None,
-    dtype=torch.float32,
-) -> tuple[geometric.MultiViewCamera, torch.Tensor, Optional[torch.Tensor]]:
-    """Loads scene information from nvidia compatible transforms.json
+def load_scene_from_json(path: Union[str, list[str]]) -> config.SceneConf:
+    """Loads scene information from one or more NeRF transforms.json files.
 
     Params:
-        path: path to `transforms.json` file
-        load_images: whether we should load ground-truth images
-        device: return data on this device
-        dtype: return data using this dtype
+        paths: path or dictionary of paths to `transforms.json` files
 
     Returns:
-        camera: multi-view camera parameters
-        aabb: (2,3) tensor containing min/max corner of world aabb
-        images: (N,H,W,4) optional RGBA images normalized to [0..1] range
+        scenecfg: scene configuration
 
     See:
         https://github.com/NVlabs/instant-ngp/blob/54aba7cfbeaf6a60f29469a9938485bebeba24c3/docs/nerf_dataset_tips.md
         https://drive.google.com/drive/folders/1JDdLGDruGNXWnM1eqY1FNL9PlStjaKWi
         https://github.com/bmild/nerf#generating-poses-for-your-own-scenes
     """
+    if isinstance(path, (str, Path)):
+        path = [path]
+
+    cfgs = [_load_transform_json(p) for p in path]
+    cams = []
+    for c in cfgs:
+        cams.extend(c.cameras)
+    aabb = cfgs[0].aabb
+    return config.SceneConf(cameras=cams, aabb=aabb)
+
+
+def _load_transform_json(path: str) -> config.SceneConf:
 
     path = Path(path)
-    assert path.is_file()
+    assert path.is_file(), f"Path {path} does not exist."
     with open(path, "r") as f:
         data = json.load(f)
 
     scale = data.get("scale", 0.33)
     aabb_scale = data.get("aabb_scale", 1.0)
-    offset = torch.tensor(data.get("offset", 0.5)).to(device).to(dtype)
+    offset = data.get("offset", 0.5)
 
     if "aabb" not in data:
         _logger.debug(
-            "Key 'aabb' not found. Assuming legacy NeRF format with origin at 0.5 and"
-            " side length 1."
+            "Key 'aabb' not found in transforms.json file. Assuming legacy NeRF format"
+            " with origin at 0.5 and side length 1."
         )
         aabb = (
             torch.stack(
@@ -62,38 +62,30 @@ def load_scene_from_json(
                 ),
                 0,
             )
-            .to(device)
-            .to(dtype)
-        ) + offset
+        ) + torch.as_tensor(offset)
     else:
-        aabb = torch.tensor(data["aabb"]).to(device).to(dtype)
+        aabb = torch.tensor(data["aabb"])
 
     Rs = []
     Ts = []
-    view_images = []
     image_paths = []
     n_skipped = 0
     n_fixed = 0
     for frame in data["frames"]:
-        # Handle image
-        if load_images:
-            imgpath = path.parent / frame["file_path"]
-            if imgpath.suffix == "":
-                # Original nerf does not specify image suffix
-                imgpath = imgpath.with_suffix(".png")
-            if not imgpath.is_file():
-                _logger.debug(f"Failed to find {str(imgpath)}, skipping.")
-                n_skipped += 1
-                continue
-
-            img = Image.open(imgpath).convert("RGBA")
-            img = torch.tensor(np.asarray(img)).to(dtype).permute(2, 0, 1) / 255.0
-            view_images.append(img)
-            image_paths.append(frame["file_path"])
+        # Check for image
+        imgpath = path.parent / frame["file_path"]
+        if imgpath.suffix == "":
+            # Original nerf does not specify image suffix
+            imgpath = imgpath.with_suffix(".png")
+        if not imgpath.is_file():
+            _logger.debug(f"Failed to find {str(imgpath)}, skipping.")
+            n_skipped += 1
+            continue
+        image_paths.append(imgpath.as_posix())
 
         # Handle extrinsics. Correct non-orthonormal rotations.
         # That's the case for some frames of the fox-dataset.
-        t = torch.tensor(frame["transform_matrix"]).to(torch.float64)
+        t = torch.tensor(frame["transform_matrix"], dtype=torch.float64)
         if (torch.det(t[:3, :3]) - 1.0) > 1e-5:
             _logger.debug(f"Pose for {str(imgpath)} not ortho-normalized, correcting.")
             n_fixed += 1
@@ -111,13 +103,21 @@ def load_scene_from_json(
         flip[1, 1] = -1
         flip[2, 2] = -1
 
-        t = (t @ flip).to(dtype)
+        t = t @ flip
         Rs.append(t[:3, :3])
         Ts.append(t[:3, 3])
 
-    H, W = view_images[0].shape[-2:]
+    # Handle camera params
+    if "h" not in data or "w" not in data:
+        assert len(image_paths) > 0, "Failed to deduce camera size."
+        img = Image.open(image_paths[0])
+        H, W = img.height, img.width
+        del img
+    else:
+        H, W = int(data.get("h", 0)), int(data.get("w", 0))
+
     if "fl_x" not in data or "fl_y" not in data:
-        assert "camera_angle_x" in data
+        assert "camera_angle_x" in data, "Failed to deduce camera focal length."
         fl_x = 0.5 * W / math.tan(0.5 * data["camera_angle_x"])
         fl_y = fl_x  # square pixels
     else:
@@ -129,46 +129,26 @@ def load_scene_from_json(
         cx = data["cx"]
         cy = data["cy"]
 
-    camera = geometric.MultiViewCamera(
-        focal_length=[fl_x, fl_y],
-        principal_point=[cx, cy],
-        size=[W, H],
-        tnear=0.0,
-        tfar=20,
-        rvec=functional.so3_log(torch.stack(Rs)),
-        tvec=torch.stack(Ts, 0),
+    rvec = functional.so3_log(torch.stack(Rs, 0))
+    tvec = torch.stack(Ts, 0)
+
+    camcfg = config.MultiViewCameraConf(
+        focal_length=(fl_x, fl_y),
+        principal_point=(cx, cy),
+        size=(W, H),
+        rvec=config.Vecs3Conf([tuple(r.tolist()) for r in rvec]),
+        tvec=config.Vecs3Conf([tuple(t.tolist()) for t in tvec]),
         image_paths=image_paths,
     )
 
-    images = None
-    if load_images:
-        images = torch.stack(view_images, 0).to(device)
+    aabbcfg = config.Vecs3Conf([tuple(aabb[0].tolist()), tuple(aabb[1].tolist())])
 
     _logger.debug(
-        f"Imported {camera.n_views} poses from '{str(path)}', skipped"
+        f"Imported {len(image_paths)} poses from '{str(path)}', skipped"
         f" {n_skipped} poses and fixed {n_fixed} poses. Bounds set to {aabb}."
     )
 
-    return camera, aabb, images
-
-
-class MultiViewScene(torch.nn.Module):
-    def __init__(
-        self, path: Path, load_images: bool = True, slice: Optional[str] = None
-    ) -> None:
-        super().__init__()
-        camera, aabb, images = load_scene_from_json(path, load_images=load_images)
-        if slice is not None:
-            s = _string_to_slice(slice)
-            camera = camera[s]
-            if images is not None:
-                images = images[s]
-
-        self.camera = camera
-        self.register_buffer("images", images)
-        self.register_buffer("aabb", aabb)
-        self.images: Optional[torch.Tensor]
-        self.aabb: torch.Tensor
+    return config.SceneConf(cameras=[camcfg], aabb=aabbcfg)
 
 
 def _string_to_slice(sstr):

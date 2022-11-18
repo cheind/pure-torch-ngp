@@ -9,11 +9,12 @@ from torchngp.config import (
     MultiViewCameraConf,
     Vecs3Conf,
     VolumeConf,
-    load_transforms_json,
 )
 
+from torchngp import io
+
 scenecfg = SceneConf(
-    cams=[
+    cameras=[
         MultiViewCameraConf(
             focal_length=(1.0, 1.0),
             principal_point=(0.0, 0.0),
@@ -33,7 +34,7 @@ scenecfg = SceneConf(
     ],
 )
 print(to_yaml(scenecfg))
-cams = instantiate(scenecfg.cams)
+cams = instantiate(scenecfg.cameras)
 print(cams[0].E)
 print(cams[0].load_images().shape)
 # scene = instantiate(scenecfg)
@@ -52,15 +53,17 @@ print(cams[0].load_images().shape)
 # # print(scene)
 # print(list(scene.parameters()))
 
-scenecfg_loaded = load_transforms_json("data/suzanne/transforms.json")
-# print(to_yaml(scenecfg_loaded))
+scenecfg = io.load_scene_from_json(
+    ["data/suzanne/transforms.json", "data/trivial/transforms.json"]
+)
+print(to_yaml(scenecfg))
 
-Conf = make_config(scene=scenecfg_loaded, volume=VolumeConf(aabb="${scene.aabb}"))
-cfg = Conf()
-print(to_yaml(cfg))
+# Conf = make_config(scene=scenecfg_loaded, volume=VolumeConf(aabb="${scene.aabb}"))
+# cfg = Conf()
+# print(to_yaml(cfg))
 
-inst = instantiate(cfg)
-print(inst.scene.aabb, inst.volume.aabb)
+# inst = instantiate(cfg)
+# print(inst.scene.aabb, inst.volume.aabb)
 
 # cams = instantiate(scenecfg_loaded.cams, _convert_="all")
 # print(type(cams))
