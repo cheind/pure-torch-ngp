@@ -18,8 +18,5 @@ class Volume(torch.nn.Module):
         self.radiance_field = radiance_field
         self.spatial_filter = spatial_filter or BoundsFilter()
 
-        self.n_color_dims: int
-        self.n_density_dims: int
-
     def to_ndc(self, xyz: torch.Tensor) -> torch.Tensor:
         return functional.convert_world_to_box_normalized(xyz, self.aabb)
