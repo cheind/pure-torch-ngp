@@ -4,6 +4,7 @@ from typing import Union, Optional
 
 import torch
 import torch.nn
+import numpy as np
 
 
 from . import functional
@@ -52,6 +53,10 @@ class MultiViewCamera(torch.nn.Module):
         self.register_buffer("tfar", tfar)
         self.register_buffer("rvec", rvec)
         self.register_buffer("tvec", tvec)
+        if image_paths is not None:
+            image_paths = np.array(
+                image_paths, dtype=object
+            )  # to support advanced indexing
         self.image_paths = image_paths
 
         self.focal_length: torch.Tensor
@@ -64,9 +69,6 @@ class MultiViewCamera(torch.nn.Module):
 
     def __getitem__(self, index) -> "MultiViewCamera":
         """Slice a subset of camera poses."""
-        index_list = (
-            index[0] if isinstance(index, tuple) else index
-        )  # TODO: a hack because list does not support advanced slicing...
         return MultiViewCamera(
             focal_length=self.focal_length,
             principal_point=self.principal_point,
@@ -74,7 +76,7 @@ class MultiViewCamera(torch.nn.Module):
             rvec=self.rvec[index],
             tvec=self.tvec[index],
             image_paths=(
-                self.image_paths[index_list] if self.image_paths is not None else None
+                self.image_paths[index] if self.image_paths is not None else None
             ),
             tnear=self.tnear,
             tfar=self.tfar,
