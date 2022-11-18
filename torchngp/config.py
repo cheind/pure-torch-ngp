@@ -1,19 +1,14 @@
-import logging
-import json
-import math
-from typing import Union
-from pathlib import Path
-from PIL import Image
-
 import torch
-import torch.nn.functional as F
-from hydra_zen import make_custom_builds_fn
+from hydra_zen import make_custom_builds_fn, make_config
 
 from .filtering import BoundsFilter, OccupancyGridFilter
+from .sampling import StratifiedRayStepSampler
+from .rendering import RadianceRenderer
 from .geometric import MultiViewCamera
 from .radiance import NeRF
 from .scenes import Scene
 from .volumes import Volume
+from .training import NeRFTrainerOptions, NeRFTrainer
 
 
 builds = make_custom_builds_fn(populate_full_signature=True)
@@ -35,5 +30,10 @@ VolumeConf = builds(
     Volume,
     aabb=Vecs3Conf([(-1.0,) * 3, (1.0,) * 3]),
     radiance_field=NeRFConf(),
+    spatial_filter=OccupancyGridFilterConf(),
 )
 SceneConf = builds(Scene, cameras=[], aabb=Vecs3Conf([(-1.0,) * 3, (1.0,) * 3]))
+RadianceRendererConf = builds(RadianceRenderer)
+StratifiedRayStepSamplerConf = builds(StratifiedRayStepSampler)
+NeRFTrainerOptionsConf = builds(NeRFTrainerOptions)
+NeRFTrainerConf = builds(NeRFTrainer, train_opts=NeRFTrainerOptionsConf())
