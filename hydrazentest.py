@@ -3,7 +3,7 @@ import torch
 from hydra_zen import instantiate, to_yaml
 
 
-from hydra_zen import save_as_yaml, load_from_yaml
+from hydra_zen import save_as_yaml, load_from_yaml, make_config
 from torchngp.config import (
     SceneConf,
     MultiViewCameraConf,
@@ -31,7 +31,6 @@ scenecfg = SceneConf(
             image_paths=["data/lenna.png"],
         ),
     ],
-    volume=VolumeConf(),
 )
 print(to_yaml(scenecfg))
 cams = instantiate(scenecfg.cams)
@@ -54,8 +53,18 @@ print(cams[0].load_images().shape)
 # print(list(scene.parameters()))
 
 scenecfg_loaded = load_transforms_json("data/suzanne/transforms.json")
-print(to_yaml(scenecfg_loaded))
+# print(to_yaml(scenecfg_loaded))
 
-cams = instantiate(scenecfg_loaded.cams, _convert_="all")
-print(type(cams))
-cams[0].load_images()
+Conf = make_config(scene=scenecfg_loaded, volume=VolumeConf(aabb="${scene.aabb}"))
+cfg = Conf()
+print(to_yaml(cfg))
+
+inst = instantiate(cfg)
+print(inst.scene.aabb, inst.volume.aabb)
+
+# cams = instantiate(scenecfg_loaded.cams, _convert_="all")
+# print(type(cams))
+# cams[0].load_images()
+
+# https://mit-ll-responsible-ai.github.io/hydra-zen/generated/hydra_zen.instantiate.html
+# for aabb?

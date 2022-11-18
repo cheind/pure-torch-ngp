@@ -38,11 +38,7 @@ VolumeConf = builds(
     aabb=Vecs3Conf([(-1.0,) * 3, (1.0,) * 3]),
     radiance_field=NeRFConf(),
 )
-SceneConf = builds(
-    Scene,
-    cams=[],
-    volume=VolumeConf(),
-)
+SceneConf = builds(Scene, cams=[], aabb=Vecs3Conf([(-1.0,) * 3, (1.0,) * 3]))
 
 
 def load_transforms_json(paths: Union[str, list[str]]) -> SceneConf:
@@ -63,7 +59,7 @@ def load_transforms_json(paths: Union[str, list[str]]) -> SceneConf:
         paths = [paths]
 
     results = [_load_transforms_json_data(p) for p in paths]
-    scenecfg = SceneConf(cams=[r[0] for r in results], volume=results[0][1])
+    scenecfg = SceneConf(cams=[r[0] for r in results], aabb=results[0][1])
     return scenecfg
 
 
@@ -170,13 +166,11 @@ def _load_transforms_json_data(path: str):
         image_paths=image_paths,
     )
 
-    volcfg = VolumeConf(
-        aabb=Vecs3Conf([tuple(aabb[0].tolist()), tuple(aabb[1].tolist())])
-    )
+    aabbcfg = Vecs3Conf([tuple(aabb[0].tolist()), tuple(aabb[1].tolist())])
 
     # _logger.debug(
     #     f"Imported {camera.n_views} poses from '{str(path)}', skipped"
     #     f" {n_skipped} poses and fixed {n_fixed} poses. Bounds set to {aabb}."
     # )
 
-    return camcfg, volcfg
+    return camcfg, aabbcfg
