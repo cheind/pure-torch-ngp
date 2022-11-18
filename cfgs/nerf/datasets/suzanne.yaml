@@ -4,5 +4,5 @@ train:
     slice: ":-3"
 val:
     _target_: torchngp.io.MultiViewScene
-    path: data/lego/transforms_val.json
+    path: data/suzanne/transforms.json
     slice: "-3:"
