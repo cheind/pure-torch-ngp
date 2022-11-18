@@ -14,7 +14,7 @@ def test_render_volume_stratified():
         density_scale=1e1,  # soft density scale
         cmap="jet",
     )
-    vol = volumes.Volume(aabb[0].tolist(), aabb[1].tolist(), rf)
+    vol = volumes.Volume(aabb, rf)
 
     cam = geometric.MultiViewCamera(
         focal_length=[50.0, 50.0],

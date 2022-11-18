@@ -139,9 +139,6 @@ class MultiViewCamera(torch.nn.Module):
         )
         return uv
 
-    def extra_repr(self):
-        return "\n".join([key + ": " + repr(mod) for key, mod in self._buffers.items()])
-
     def load_images(self, base_path: Path = None) -> torch.Tensor:
         """Load images associated with this camera."""
         if base_path is None:
@@ -154,6 +151,13 @@ class MultiViewCamera(torch.nn.Module):
             img = self.rvec.new_tensor(np.asarray(img)).float().permute(2, 0, 1) / 255.0
             loaded.append(img)
         return torch.stack(loaded, 0)
+
+    def extra_repr(self):
+        out = ""
+        out += f"focal_length={self.focal_length}, "
+        out += f"size={self.size}, "
+        out += f"n_poses={self.n_views}"
+        return out
 
 
 @dataclasses.dataclass

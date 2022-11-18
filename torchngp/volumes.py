@@ -8,13 +8,12 @@ from . import functional
 class Volume(torch.nn.Module):
     def __init__(
         self,
-        minc: tuple[float, float, float],
-        maxc: tuple[float, float, float],
+        aabb: torch.Tensor,
         radiance_field: RadianceField,
         spatial_filter: Optional[SpatialFilter] = None,
     ) -> None:
         super().__init__()
-        self.register_buffer("aabb", torch.tensor([minc, maxc]))
+        self.register_buffer("aabb", aabb.float())
         self.aabb: torch.Tensor
         self.radiance_field = radiance_field
         self.spatial_filter = spatial_filter or BoundsFilter()

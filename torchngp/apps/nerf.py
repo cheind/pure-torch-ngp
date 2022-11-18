@@ -77,7 +77,7 @@ def train(cfg: DictConfig):
     ).to(dev)
     renderer = rendering.RadianceRenderer(ray_extension=1).to(dev)
 
-    volume = volumes.Volume(aabb[0].tolist(), aabb[1].tolist(), nerf, sfilter).to(dev)
+    volume = volumes.Volume(aabb, nerf, sfilter).to(dev)
 
     # Determine batch size
 
