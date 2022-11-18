@@ -47,17 +47,16 @@ def test_rotation_vector():
     assert_close(u, torch.eye(3))
     assert_close(theta, torch.tensor([0.0, torch.pi / 2, -torch.pi / 2]))
 
-    # Random
+    # Random in float64
     torch.random.manual_seed(123)
     batch = (2, 5, 10, 50)
-    u_gt = torch.randn(batch + (3,))
+    u_gt = torch.randn(batch + (3,), dtype=torch.float64)
     u_gt = u_gt / torch.linalg.vector_norm(u_gt, ord=2, dim=-1, keepdim=True)
-    theta_gt = torch.empty(batch).uniform_(-torch.pi, torch.pi)
+    theta_gt = torch.empty(batch, dtype=torch.float64).uniform_(-torch.pi, torch.pi)
     R_gt = linalg.rotation_matrix(u_gt, theta_gt)
 
     u, theta = linalg.rotation_vector(R_gt)
     # Vectors might actually be flipped and signs of theta changed, so we revert
     # back to rot matrices for comparison
     R = linalg.rotation_matrix(u, theta)
-
-    assert (R_gt - R).abs().max() < 1e-4
+    assert (R_gt - R).abs().max() < 1e-8
