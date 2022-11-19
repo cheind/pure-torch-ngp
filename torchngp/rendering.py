@@ -96,7 +96,6 @@ class RadianceRenderer(torch.nn.Module):
 
         parts = []
         for uv, _ in gen:
-            print(uv.shape)
             result = self.trace_uv(
                 vol=vol,
                 cam=cam,
