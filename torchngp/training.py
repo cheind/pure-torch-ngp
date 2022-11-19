@@ -222,7 +222,7 @@ class NeRFTrainer:
         loss_acc = 0.0
         t_started = time.time()
         t_val_elapsed = 0.0
-        for _ in tqdm(range(self.train_max_epochs), leave=False):
+        for _ in range(self.train_max_epochs):
             pbar = tqdm(train_dl, mininterval=0.1, leave=False)
             for uv, rgba in pbar:
                 if (time.time() - t_started - t_val_elapsed) > self.train_max_time:
