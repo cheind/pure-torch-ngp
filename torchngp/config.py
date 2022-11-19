@@ -8,7 +8,7 @@ from .geometric import MultiViewCamera
 from .radiance import NeRF
 from .scenes import Scene
 from .volumes import Volume
-from .training import NeRFTrainerOptions, NeRFTrainer
+from .training import NeRFTrainer
 
 
 builds = make_custom_builds_fn(populate_full_signature=True)
@@ -35,5 +35,4 @@ VolumeConf = builds(
 SceneConf = builds(Scene, cameras=[], aabb=Vecs3Conf([(-1.0,) * 3, (1.0,) * 3]))
 RadianceRendererConf = builds(RadianceRenderer)
 StratifiedRayStepSamplerConf = builds(StratifiedRayStepSampler)
-NeRFTrainerOptionsConf = builds(NeRFTrainerOptions)
-NeRFTrainerConf = builds(NeRFTrainer, train_opts=NeRFTrainerOptionsConf())
+NeRFTrainerConf = builds(NeRFTrainer)

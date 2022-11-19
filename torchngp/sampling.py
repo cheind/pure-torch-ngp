@@ -9,8 +9,8 @@ from . import functional
 
 def generate_random_uv_samples(
     camera: geometric.MultiViewCamera,
-    image: torch.Tensor = None,
-    n_samples_per_cam: int = None,
+    image: Optional[torch.Tensor] = None,
+    n_samples_per_cam: Optional[int] = None,
     subpixel: bool = True,
 ) -> Iterator[tuple[torch.Tensor, Optional[torch.Tensor]]]:
     """Generate random pixel samples.
@@ -58,8 +58,8 @@ def generate_random_uv_samples(
 
 def generate_sequential_uv_samples(
     camera: geometric.MultiViewCamera,
-    image: torch.Tensor = None,
-    n_samples_per_cam: int = None,
+    image: Optional[torch.Tensor] = None,
+    n_samples_per_cam: Optional[int] = None,
     n_passes: int = 1,
 ) -> Iterator[tuple[torch.Tensor, Optional[torch.Tensor]]]:
     """Generate sequential pixel samples.

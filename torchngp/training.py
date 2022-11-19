@@ -2,6 +2,7 @@ import copy
 import dataclasses
 import logging
 import time
+from typing import Union, Optional
 from itertools import islice
 
 import torch
@@ -12,7 +13,7 @@ from PIL import Image
 from tqdm import tqdm
 from pathlib import Path
 
-from . import geometric, rendering, sampling, scenes, volumes, plotting
+from . import geometric, rendering, sampling, scenes, volumes, plotting, radiance
 
 _logger = logging.getLogger("torchngp")
 
@@ -22,7 +23,7 @@ class MultiViewDataset(torch.utils.data.IterableDataset):
         self,
         camera: geometric.MultiViewCamera,
         images: torch.Tensor,
-        n_rays_per_view: int = None,
+        n_rays_per_view: Optional[int] = None,
         random: bool = True,
         subpixel: bool = True,
     ):
@@ -31,7 +32,7 @@ class MultiViewDataset(torch.utils.data.IterableDataset):
         self.n_pixels_per_cam = camera.size.prod().item()
         if n_rays_per_view is None:
             # width of image per mini-batch
-            n_rays_per_view = camera.size[0].item()
+            n_rays_per_view = camera.size[0].item()  # type: ignore
         self.n_rays_per_view = n_rays_per_view
         self.random = random
         self.subpixel = subpixel if random else False
@@ -120,7 +121,7 @@ def render_images(
     return pred_rgba
 
 
-def save_image(fname: str, rgba: torch.Tensor):
+def save_image(fname: Union[str, Path], rgba: torch.Tensor):
     grid_img = (
         (plotting.make_image_grid(rgba, checkerboard_bg=False, scale=1.0) * 255)
         .to(torch.uint8)
@@ -145,14 +146,14 @@ class OptimizerParams:
 
 
 @dataclasses.dataclass
-class NeRFTrainerOptions:
-    output_dir: Path = "./tmp"
+class NeRFTrainer:
+    output_dir: Path = Path("./tmp")
     train_cam_idx: int = 0
-    train_slice: str = None
+    train_slice: Optional[str] = None
     train_max_time: float = 60 * 10
     train_max_epochs: int = 3
     val_cam_idx: int = -1
-    val_slice: str = ":3"
+    val_slice: Optional[str] = ":3"
     n_rays_batch: int = 2**14
     n_rays_minibatch: int = 2**14
     val_n_rays: int = int(1e6)
@@ -163,33 +164,25 @@ class NeRFTrainerOptions:
     subpixel_uv: bool = True
     preload: bool = False
     optimizer: OptimizerParams = dataclasses.field(default_factory=OptimizerParams)
+    dev: Optional[torch.device] = None
 
-
-class NeRFTrainer:
-    def __init__(
-        self,
-        dev: torch.device = None,
-        train_opts: NeRFTrainerOptions = None,
-    ):
-        if train_opts is None:
-            train_opts = train_opts()
-        self.opts = train_opts
-        if dev is None:
-            dev = (
+    def __post_init__(self):
+        if self.dev is None:
+            self.dev = (
                 torch.device("cuda")
                 if torch.cuda.is_available()
                 else torch.device("cpu")
             )
-        self.dev = dev
-        _logger.info(f"Using device {dev}")
-        _logger.info(f"Output directory set to {self.opts.output_dir.as_posix()}")
+        self.dev = self.dev
+        _logger.info(f"Using device {self.dev}")
+        _logger.info(f"Output directory set to {self.output_dir.as_posix()}")
 
     def train(
         self,
         scene: scenes.Scene,
         volume: volumes.Volume,
-        renderer: rendering.RadianceRenderer = None,
-        tsampler: sampling.RayStepSampler = None,
+        renderer: Optional[rendering.RadianceRenderer] = None,
+        tsampler: Optional[sampling.RayStepSampler] = None,
     ):
         self.scene = scene
         self.volume = volume
@@ -203,22 +196,20 @@ class NeRFTrainer:
         train_cam, val_cam = self._find_cameras()
 
         # Bookkeeping
-        n_acc_steps = self.opts.n_rays_batch // self.opts.n_rays_minibatch
-        n_rays_per_view = int(
-            self.opts.n_rays_minibatch / train_cam.n_views / self.opts.n_worker
-        )
-        val_interval = max(int(self.opts.val_n_rays / self.opts.n_rays_batch), 1)
+        n_acc_steps = self.n_rays_batch // self.n_rays_minibatch
+        n_rays_per_view = int(self.n_rays_minibatch / train_cam.n_views / self.n_worker)
+        val_interval = max(int(self.val_n_rays / self.n_rays_batch), 1)
 
         # Train dataloader
         train_dl = self._create_train_dataloader(
-            train_cam, n_rays_per_view, self.opts.n_worker
+            train_cam, n_rays_per_view, self.n_worker
         )
 
         # Create optimizers, schedulers
         opt, sched = self._create_optimizers()
 
         # Setup AMP
-        scaler = torch.cuda.amp.GradScaler(enabled=self.opts.use_amp)
+        scaler = torch.cuda.amp.GradScaler(enabled=self.use_amp)
 
         # Setup closure for gradient accumulation
         fwd_bwd_fn = create_fwd_bwd_closure(
@@ -231,10 +222,10 @@ class NeRFTrainer:
         loss_acc = 0.0
         t_started = time.time()
         t_val_elapsed = 0.0
-        for epoch in range(self.opts.train_max_epochs):
-            pbar = tqdm(train_dl, mininterval=0.1)
+        for _ in tqdm(range(self.train_max_epochs), leave=False):
+            pbar = tqdm(train_dl, mininterval=0.1, leave=False)
             for uv, rgba in pbar:
-                if (time.time() - t_started - t_val_elapsed) > self.opts.train_max_time:
+                if (time.time() - t_started - t_val_elapsed) > self.train_max_time:
                     _logger.info("Max training time elapsed.")
                     return
                 uv = uv.to(self.dev)
@@ -253,16 +244,17 @@ class NeRFTrainer:
                     )
 
                     pbar_postfix["loss"] = loss_acc
-                    pbar_postfix["lr"] = sched._last_lr[0]
+                    pbar_postfix["lr"] = sched._last_lr[0]  # type: ignore
                     loss_acc = 0.0
 
                 if ((self.global_step + 1) % val_interval == 0) and (
-                    pbar_postfix["loss"] <= self.opts.val_min_loss
+                    pbar_postfix["loss"] <= self.val_min_loss
                 ):
                     t_val_start = time.time()
-                    # TODO: consider number of rays, gpu not utilized! also instead of stack copy image, parts in trace_maps?
+                    # TODO: consider number of rays, gpu not utilized! also instead of
+                    # stack copy image, parts in trace_maps?
                     self.validation_step(
-                        val_camera=val_cam, n_rays_per_view=self.opts.n_rays_minibatch
+                        val_camera=val_cam, n_rays_per_view=self.n_rays_minibatch
                     )
                     t_val_elapsed += time.time() - t_val_start
 
@@ -278,12 +270,10 @@ class NeRFTrainer:
             self.renderer,
             val_camera,
             self.tsampler,
-            self.opts.use_amp,
+            self.use_amp,
             n_samples_per_view=n_rays_per_view,
         )
-        save_image(
-            self.opts.output_dir / f"img_val_step={self.global_step}.png", val_rgba
-        )
+        save_image(self.output_dir / f"img_val_step={self.global_step}.png", val_rgba)
         # TODO:this is a different loss than in training
         # val_loss = F.mse_loss(val_rgba[:, :3], val_scene.images.to(dev)[:, :3])
         # pbar_postfix["val_loss"] = val_loss.item()
@@ -291,15 +281,15 @@ class NeRFTrainer:
     def _create_train_dataloader(
         self, train_cam: geometric.MultiViewCamera, n_rays_per_view: int, n_worker: int
     ):
-        if not self.opts.preload:
+        if not self.preload:
             train_cam = copy.deepcopy(train_cam).cpu()
 
         train_ds = MultiViewDataset(
             camera=train_cam,
             images=train_cam.load_images(),
             n_rays_per_view=n_rays_per_view,
-            random=self.opts.random_uv,
-            subpixel=self.opts.subpixel_uv,
+            random=self.random_uv,
+            subpixel=self.subpixel_uv,
         )
 
         train_dl = torch.utils.data.DataLoader(
@@ -316,44 +306,44 @@ class NeRFTrainer:
     def _find_cameras(
         self,
     ) -> tuple[geometric.MultiViewCamera, geometric.MultiViewCamera]:
-        train_cam = self.scene.cameras[self.opts.train_cam_idx]
-        val_cam = self.scene.cameras[self.opts.val_cam_idx]
-        if self.opts.train_slice is not None:
-            train_cam = train_cam[_string_to_slice(self.opts.train_slice)]
-        if self.opts.val_slice is not None:
-            val_cam = val_cam[_string_to_slice(self.opts.val_slice)]
+        train_cam: geometric.MultiViewCamera = self.scene.cameras[self.train_cam_idx]
+        val_cam: geometric.MultiViewCamera = self.scene.cameras[self.val_cam_idx]
+        if self.train_slice is not None:
+            train_cam = train_cam[_string_to_slice(self.train_slice)]
+        if self.val_slice is not None:
+            val_cam = val_cam[_string_to_slice(self.val_slice)]
         return train_cam, val_cam
 
     def _create_optimizers(
         self,
     ) -> tuple[torch.optim.Optimizer, torch.optim.lr_scheduler._LRScheduler]:
-        nerf = self.volume.radiance_field
+        nerf: radiance.NeRF = self.volume.radiance_field  # type: ignore
         opt = torch.optim.AdamW(
             [
                 {
                     "params": nerf.pos_encoder.parameters(),
-                    "weight_decay": self.opts.optimizer.decay_encoder,
+                    "weight_decay": self.optimizer.decay_encoder,
                 },
                 {
                     "params": nerf.density_mlp.parameters(),
-                    "weight_decay": self.opts.optimizer.decay_density,
+                    "weight_decay": self.optimizer.decay_density,
                 },
                 {
                     "params": nerf.color_mlp.parameters(),
-                    "weight_decay": self.opts.optimizer.decay_color,
+                    "weight_decay": self.optimizer.decay_color,
                 },
             ],
-            betas=self.opts.optimizer.betas,
-            eps=self.opts.optimizer.eps,
-            lr=self.opts.optimizer.lr,
+            betas=self.optimizer.betas,
+            eps=self.optimizer.eps,
+            lr=self.optimizer.lr,
         )
 
         sched = torch.optim.lr_scheduler.ReduceLROnPlateau(
             opt,
             mode="min",
-            factor=self.opts.optimizer.sched_factor,
-            patience=self.opts.optimizer.sched_patience,
-            min_lr=self.opts.optimizer.sched_minlr,
+            factor=self.optimizer.sched_factor,
+            patience=self.optimizer.sched_patience,
+            min_lr=self.optimizer.sched_minlr,
         )
 
         return opt, sched

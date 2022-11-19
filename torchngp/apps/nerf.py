@@ -21,16 +21,12 @@ TrainAppConfig = make_config(
     volume=config.VolumeConf(aabb="${scene.aabb}"),
     renderer=config.RadianceRendererConf(),
     tsampler=config.StratifiedRayStepSamplerConf(),
-    trainer=config.NeRFTrainerConf(
-        train_opts=config.NeRFTrainerOptionsConf(
-            output_dir="${hydra:runtime.output_dir}"
-        )
-    ),
+    trainer=config.NeRFTrainerConf(output_dir="${hydra:runtime.output_dir}"),
 )
 
 # 1) Register our config with Hydra's config store
 cs = ConfigStore.instance()
-cs.store(name="train", node=TrainAppConfig)
+cs.store(name="x", node=TrainAppConfig)
 
 
 def classname(cls):
@@ -41,17 +37,18 @@ def classname(cls):
     return name
 
 
-@hydra.main(version_base="1.2", config_path=None, config_name="train")
+@hydra.main(version_base="1.2", config_path=None, config_name="x")
 def train(cfg: DictConfig):
     _logger.debug("Training config")
     _logger.debug(to_yaml(cfg))
     if cfg.scene._target_ != classname(scenes.Scene):
         cfg.scene = instantiate(cfg.scene)
 
-    inst = instantiate(cfg)
+    _logger.debug(to_yaml(cfg))
+    inst = instantiate(cfg, _convert_="all")
 
-    trainer: training.NeRFTrainer = inst.trainer
-    trainer.train(inst.scene, inst.volume, inst.renderer, inst.tsampler)
+    trainer: training.NeRFTrainer = inst["trainer"]
+    trainer.train(inst["scene"], inst["volume"], inst["renderer"], inst["tsampler"])
 
 
 if __name__ == "__main__":

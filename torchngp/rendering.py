@@ -81,11 +81,11 @@ class RadianceRenderer(torch.nn.Module):
 
     def trace_maps(
         self,
-        vol: volumes.RadianceField,
+        vol: volumes.Volume,
         cam: geometric.MultiViewCamera,
         tsampler: sampling.RayStepSampler,
         which_maps: Optional[set[MAPKEY]] = None,
-        n_samples_per_cam: int = None,
+        n_samples_per_cam: Optional[int] = None,
     ) -> dict[MAPKEY, Optional[torch.Tensor]]:
         if which_maps is None:
             which_maps = {"color", "alpha"}
