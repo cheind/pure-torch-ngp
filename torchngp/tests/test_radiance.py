@@ -177,12 +177,13 @@ def test_radiance_nerf_module():
         n_colors=3,
         n_hidden=16,
         n_encodings=2**8,
+        n_color_cond=16,
         n_levels=4,
         min_res=16,
         max_res=64,
         is_hdr=False,
     )
 
-    rgb, d = nerf(torch.randn(10, 5, 20, 3))
+    rgb, d = nerf(torch.randn(10, 5, 20, 3), torch.randn(10, 5, 20, 16))
     assert d.shape == (10, 5, 20, 1)
     assert rgb.shape == (10, 5, 20, 3)
