@@ -13,11 +13,14 @@ from . import config, functional
 _logger = logging.getLogger("torchngp")
 
 
-def load_scene_from_json(path: Union[str, list[str]]) -> config.SceneConf:
+def load_scene_from_json(
+    path: Union[str, list[str]], pose_to_cv: bool = True
+) -> config.SceneConf:
     """Loads scene information from one or more NeRF transforms.json files.
 
     Params:
         paths: path or dictionary of paths to `transforms.json` files
+        pose_to_cv: Enable conversion from OpenGL to OpenCV camera frame.
 
     Returns:
         scenecfg: scene configuration
@@ -30,7 +33,7 @@ def load_scene_from_json(path: Union[str, list[str]]) -> config.SceneConf:
     if isinstance(path, (str, Path)):
         path = [path]
 
-    cfgs = [_load_transform_json(p) for p in path]
+    cfgs = [_load_transform_json(p, pose_to_cv=pose_to_cv) for p in path]
     cams = []
     for c in cfgs:
         cams.extend(c.cameras)
@@ -38,7 +41,7 @@ def load_scene_from_json(path: Union[str, list[str]]) -> config.SceneConf:
     return config.SceneConf(cameras=cams, aabb=aabb)
 
 
-def _load_transform_json(path: str) -> config.SceneConf:
+def _load_transform_json(path: str, pose_to_cv: bool) -> config.SceneConf:
 
     path = Path(path)
     assert path.is_file(), f"Path {path} does not exist."
@@ -99,11 +102,12 @@ def _load_transform_json(path: str) -> config.SceneConf:
 
         # Cconvert from OpenGL to OpenCV camera
         # model: i.e look towards positive z
-        flip = torch.eye(4, dtype=torch.float64)
-        flip[1, 1] = -1
-        flip[2, 2] = -1
+        if pose_to_cv:
+            flip = torch.eye(4, dtype=torch.float64)
+            flip[1, 1] = -1
+            flip[2, 2] = -1
 
-        t = t @ flip
+            t = t @ flip
         Rs.append(t[:3, :3])
         Ts.append(t[:3, 3])
 
@@ -149,11 +153,3 @@ def _load_transform_json(path: str) -> config.SceneConf:
     )
 
     return config.SceneConf(cameras=[camcfg], aabb=aabbcfg)
-
-
-def _string_to_slice(sstr):
-    # https://stackoverflow.com/questions/43089907/using-a-string-to-define-numpy-array-slice
-    return tuple(
-        slice(*(int(i) if i else None for i in part.strip().split(":")))
-        for part in sstr.strip("[]").split(",")
-    )

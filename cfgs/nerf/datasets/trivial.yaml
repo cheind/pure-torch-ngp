@@ -1,6 +1,0 @@
-train:
-    _target_: torchngp.io.MultiViewScene
-    path: data/trivial/transforms.json
-val:
-    _target_: torchngp.io.MultiViewScene
-    path: data/trivial/transforms.json

@@ -1,53 +1,68 @@
-train:
-    job_dir: ${hydra:run.dir}
-    log_level: debug
-    n_rays_batch: 16384 # 2**14
-    n_rays_minibatch: 16384 # 2**14
+scene:
+  _target_: torchngp.io.load_scene_from_json
+  path: data/trivial/transforms.json
+  pose_to_cv: true
+volume:
+  _target_: torchngp.volumes.Volume
+  aabb: ${scene.aabb}
+  radiance_field:
+    _target_: torchngp.radiance.NeRF
+    n_colors: 3
+    n_hidden: 64
+    n_encodings: 65536
+    n_levels: 16
+    n_color_cond: 16
+    min_res: 32
+    max_res: 512
+    max_n_dense: 16777216
+    is_hdr: false
+  spatial_filter:
+    _target_: torchngp.filtering.OccupancyGridFilter
+    res: 64
+    density_initial: 0.02
+    density_threshold: 0.01
+    stochastic_test: false
+    update_interval: 16
+    update_decay: 0.7
+    update_noise_scale: null
+    update_selection_rate: 0.25
+renderer:
+  _target_: torchngp.rendering.RadianceRenderer
+  ray_extension: 2.0
+tsampler:
+  _target_: torchngp.sampling.StratifiedRayStepSampler
+  n_samples: 128
+trainer:
+  _target_: torchngp.training.NeRFTrainer
+  dev: null
+  train_opts:
+    _target_: torchngp.training.NeRFTrainerOptions
+    output_dir: ${hydra:runtime.output_dir}
+    train_cam_idx: 0
+    train_slice: null
+    train_max_time: 180.0
+    train_max_epochs: 3
+    val_cam_idx: -1
+    val_slice: null
+    n_rays_batch: 16384
+    n_rays_minibatch: 16384
+    val_n_rays: 1000000
+    val_min_loss: 0.005
     n_worker: 4
-    preload: false
     use_amp: true
     random_uv: true
     subpixel_uv: true
-    opt:
-        lr: 1e-2
-        betas: [0.9, 0.99]
-        eps: 1e-15
-        decay_encoder: 0.0
-        decay_density: 1e-6
-        decay_color: 1e-6
-    sched:
-        factor: 0.75
-        patience: 20
-        min_lr: 1e-4
-    val_interval: 1e6
-    val_min_loss: 5e-3
-datasets: ???
-setup:
-    aabb: null # if null taken from train ds
-    nerf:
-        _target_: torchngp.radiance.NeRF
-        n_colors: 3
-        n_hidden: 64
-        n_encodings: 262144 # 2**18
-        n_levels: 16
-        n_color_cond: 16
-        min_res: 32
-        max_res: 512
-        max_n_dense: 16777216 # 256**3
-        is_hdr: False
-    spatial_filter:
-        _target_: torchngp.filtering.OccupancyGridFilter
-        res: 64
-        density_initial: 0.02
-        density_threshold: 0.01
-        update_interval: 8
-        update_selection_rate: 0.25
-        update_decay: 0.7
-        stochastic_test: true
-    ray_tsampler:
-        _target_: torchngp.sampling.StratifiedRayStepSampler
-        n_samples: 256
-
-defaults:
-    - datasets: lego
-    - _self_
+    preload: false
+    optimizer:
+      _target_: torchngp.training.OptimizerParams
+      lr: 0.01
+      betas:
+      - 0.9
+      - 0.99
+      eps: 1.0e-15
+      decay_encoder: 0.0
+      decay_density: 1.0e-06
+      decay_color: 1.0e-06
+      sched_factor: 0.75
+      sched_patience: 20
+      sched_minlr: 0.0001

@@ -10,6 +10,7 @@ import torch.nn.functional as F
 import torch.utils.data
 from PIL import Image
 from tqdm import tqdm
+from pathlib import Path
 
 from . import geometric, rendering, sampling, scenes, volumes, plotting
 
@@ -25,8 +26,8 @@ class MultiViewDataset(torch.utils.data.IterableDataset):
         random: bool = True,
         subpixel: bool = True,
     ):
-        self.camera = copy.deepcopy(camera)
-        self.images = images.clone()
+        self.camera = camera
+        self.images = images
         self.n_pixels_per_cam = camera.size.prod().item()
         if n_rays_per_view is None:
             # width of image per mini-batch
@@ -109,11 +110,11 @@ def render_images(
     cam: geometric.MultiViewCamera,
     tsampler: sampling.RayStepSampler,
     use_amp: bool,
-    n_samples_per_cam: int,
+    n_samples_per_view: int,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     with torch.cuda.amp.autocast(enabled=use_amp):
         maps = renderer.trace_maps(
-            vol, cam, tsampler=tsampler, n_samples_per_cam=n_samples_per_cam
+            vol, cam, tsampler=tsampler, n_samples_per_cam=n_samples_per_view
         )
         pred_rgba = torch.cat((maps["color"], maps["alpha"]), -1).permute(0, 3, 1, 2)
     return pred_rgba
@@ -145,12 +146,13 @@ class OptimizerParams:
 
 @dataclasses.dataclass
 class NeRFTrainerOptions:
+    output_dir: Path = "./tmp"
     train_cam_idx: int = 0
     train_slice: str = None
-    train_max_time: float = 60 * 3
+    train_max_time: float = 60 * 10
     train_max_epochs: int = 3
     val_cam_idx: int = -1
-    val_slice: str = None
+    val_slice: str = ":3"
     n_rays_batch: int = 2**14
     n_rays_minibatch: int = 2**14
     val_n_rays: int = int(1e6)
@@ -169,17 +171,18 @@ class NeRFTrainer:
         dev: torch.device = None,
         train_opts: NeRFTrainerOptions = None,
     ):
+        if train_opts is None:
+            train_opts = train_opts()
+        self.opts = train_opts
         if dev is None:
             dev = (
                 torch.device("cuda")
                 if torch.cuda.is_available()
                 else torch.device("cpu")
             )
-        _logger.info(f"Using device {dev}")
-        if train_opts is None:
-            train_opts = train_opts()
         self.dev = dev
-        self.opts = train_opts
+        _logger.info(f"Using device {dev}")
+        _logger.info(f"Output directory set to {self.opts.output_dir.as_posix()}")
 
     def train(
         self,
@@ -204,7 +207,7 @@ class NeRFTrainer:
         n_rays_per_view = int(
             self.opts.n_rays_minibatch / train_cam.n_views / self.opts.n_worker
         )
-        val_interval = int(self.opts.val_n_rays / self.opts.n_rays_batch)
+        val_interval = max(int(self.opts.val_n_rays / self.opts.n_rays_batch), 1)
 
         # Train dataloader
         train_dl = self._create_train_dataloader(
@@ -227,11 +230,15 @@ class NeRFTrainer:
         self.global_step = 0
         loss_acc = 0.0
         t_started = time.time()
+        t_val_elapsed = 0.0
         for epoch in range(self.opts.train_max_epochs):
             pbar = tqdm(train_dl, mininterval=0.1)
             for uv, rgba in pbar:
-                if (time.time() - t_started) > self.opts.train_max_time:
+                if (time.time() - t_started - t_val_elapsed) > self.opts.train_max_time:
+                    _logger.info("Max training time elapsed.")
                     return
+                uv = uv.to(self.dev)
+                rgba = rgba.to(self.dev)
                 loss = fwd_bwd_fn(train_cam, uv, rgba)
                 loss_acc += loss.item()
 
@@ -252,9 +259,12 @@ class NeRFTrainer:
                 if ((self.global_step + 1) % val_interval == 0) and (
                     pbar_postfix["loss"] <= self.opts.val_min_loss
                 ):
+                    t_val_start = time.time()
+                    # TODO: consider number of rays, gpu not utilized! also instead of stack copy image, parts in trace_maps?
                     self.validation_step(
-                        val_camera=val_cam, n_rays_per_view=n_rays_per_view
+                        val_camera=val_cam, n_rays_per_view=self.opts.n_rays_minibatch
                     )
+                    t_val_elapsed += time.time() - t_val_start
 
                 pbar.set_postfix(**pbar_postfix, refresh=False)
                 self.global_step += 1
@@ -271,7 +281,9 @@ class NeRFTrainer:
             self.opts.use_amp,
             n_samples_per_view=n_rays_per_view,
         )
-        save_image(f"tmp/img_val_step={self.global_step}.png", val_rgba)
+        save_image(
+            self.opts.output_dir / f"img_val_step={self.global_step}.png", val_rgba
+        )
         # TODO:this is a different loss than in training
         # val_loss = F.mse_loss(val_rgba[:, :3], val_scene.images.to(dev)[:, :3])
         # pbar_postfix["val_loss"] = val_loss.item()
@@ -280,7 +292,7 @@ class NeRFTrainer:
         self, train_cam: geometric.MultiViewCamera, n_rays_per_view: int, n_worker: int
     ):
         if not self.opts.preload:
-            train_cam = train_cam.clone().cpu()
+            train_cam = copy.deepcopy(train_cam).cpu()
 
         train_ds = MultiViewDataset(
             camera=train_cam,
@@ -307,9 +319,10 @@ class NeRFTrainer:
         train_cam = self.scene.cameras[self.opts.train_cam_idx]
         val_cam = self.scene.cameras[self.opts.val_cam_idx]
         if self.opts.train_slice is not None:
-            train_cam = train_cam[self.opts.train_slice]
+            train_cam = train_cam[_string_to_slice(self.opts.train_slice)]
         if self.opts.val_slice is not None:
-            val_cam = val_cam[self.opts.val_slice]
+            val_cam = val_cam[_string_to_slice(self.opts.val_slice)]
+        return train_cam, val_cam
 
     def _create_optimizers(
         self,
@@ -322,11 +335,11 @@ class NeRFTrainer:
                     "weight_decay": self.opts.optimizer.decay_encoder,
                 },
                 {
-                    "params": nerf.parameters(),
+                    "params": nerf.density_mlp.parameters(),
                     "weight_decay": self.opts.optimizer.decay_density,
                 },
                 {
-                    "params": nerf.parameters(),
+                    "params": nerf.color_mlp.parameters(),
                     "weight_decay": self.opts.optimizer.decay_color,
                 },
             ],
@@ -344,3 +357,11 @@ class NeRFTrainer:
         )
 
         return opt, sched
+
+
+def _string_to_slice(sstr):
+    # https://stackoverflow.com/questions/43089907/using-a-string-to-define-numpy-array-slice
+    return tuple(
+        slice(*(int(i) if i else None for i in part.strip().split(":")))
+        for part in sstr.strip("[]").split(",")
+    )
