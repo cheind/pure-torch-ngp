@@ -40,13 +40,10 @@ def classname(cls):
 @hydra.main(version_base="1.2", config_path=None, config_name="x")
 def train(cfg: DictConfig):
     _logger.debug("Training config")
-    _logger.debug(to_yaml(cfg))
+    _logger.debug("\n" + to_yaml(cfg))
     if cfg.scene._target_ != classname(scenes.Scene):
         cfg.scene = instantiate(cfg.scene)
-
-    _logger.debug(to_yaml(cfg))
     inst = instantiate(cfg, _convert_="all")
-
     trainer: training.NeRFTrainer = inst["trainer"]
     trainer.train(inst["scene"], inst["volume"], inst["renderer"], inst["tsampler"])
 
