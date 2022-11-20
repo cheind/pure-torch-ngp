@@ -174,6 +174,7 @@ class NeRFTrainer:
                 else torch.device("cpu")
             )
         self.dev = self.dev
+        self.output_dir = Path(self.output_dir)
         _logger.info(f"Using device {self.dev}")
         _logger.info(f"Output directory set to {self.output_dir.as_posix()}")
 
