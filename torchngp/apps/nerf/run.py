@@ -20,7 +20,7 @@ logging.getLogger("PIL").setLevel(logging.WARNING)
 
 # 1) Register our config with Hydra's config store
 cs = ConfigStore.instance()
-cs.store(name="nerf", node=NerfAppConfig)
+cs.store(name="nerf_app", node=NerfAppConfig)
 
 
 @hydra.main(version_base="1.2", config_path=None, config_name="nerf")
