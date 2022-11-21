@@ -33,6 +33,8 @@ VolumeConf = builds(
     spatial_filter=OccupancyGridFilterConf(),
 )
 SceneConf = builds(Scene, cameras=[], aabb=Vecs3Conf([(-1.0,) * 3, (1.0,) * 3]))
-RadianceRendererConf = builds(RadianceRenderer)
 StratifiedRayStepSamplerConf = builds(StratifiedRayStepSampler)
+RadianceRendererConf = builds(
+    RadianceRenderer, tsampler=StratifiedRayStepSamplerConf(128)
+)
 NeRFTrainerConf = builds(NeRFTrainer)

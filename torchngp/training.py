@@ -64,7 +64,7 @@ class MultiViewDataset(torch.utils.data.IterableDataset):
 def create_fwd_bwd_closure(
     vol: volumes.Volume,
     renderer: rendering.RadianceRenderer,
-    tsampler: sampling.RayStepSampler,
+    tsampler: Optional[sampling.RayStepSampler],
     scaler: torch.cuda.amp.GradScaler,
     n_acc_steps: int,
 ):
@@ -182,13 +182,17 @@ class NeRFTrainer:
         self,
         scene: scenes.Scene,
         volume: volumes.Volume,
-        renderer: Optional[rendering.RadianceRenderer] = None,
-        tsampler: Optional[sampling.RayStepSampler] = None,
+        train_renderer: Optional[rendering.RadianceRenderer] = None,
+        val_renderer: Optional[rendering.RadianceRenderer] = None,
     ):
         self.scene = scene
         self.volume = volume
-        self.renderer = renderer or rendering.RadianceRenderer(ray_extension=1.0)
-        self.tsampler = tsampler or sampling.StratifiedRayStepSampler(n_samples=128)
+        self.train_renderer = train_renderer or rendering.RadianceRenderer(
+            ray_extension=1.0
+        )
+        self.val_renderer = val_renderer or rendering.RadianceRenderer(
+            ray_extension=1.0
+        )
 
         # Move all relevent modules to device
         self._move_mods_to_device()
@@ -214,7 +218,7 @@ class NeRFTrainer:
 
         # Setup closure for gradient accumulation
         fwd_bwd_fn = create_fwd_bwd_closure(
-            self.volume, self.renderer, self.tsampler, scaler, n_acc_steps=n_acc_steps
+            self.volume, self.train_renderer, None, scaler, n_acc_steps=n_acc_steps
         )
 
         # Enter main loop
@@ -268,9 +272,9 @@ class NeRFTrainer:
     ):
         val_rgba = render_images(
             self.volume,
-            self.renderer,
+            self.val_renderer,
             val_camera,
-            self.tsampler,
+            None,
             self.use_amp,
             n_samples_per_view=n_rays_per_view,
         )
@@ -301,7 +305,7 @@ class NeRFTrainer:
         return train_dl
 
     def _move_mods_to_device(self):
-        for m in [self.scene, self.volume, self.renderer, self.tsampler]:
+        for m in [self.scene, self.volume, self.train_renderer, self.val_renderer]:
             m.to(self.dev)  # changes self.scene to be on device as well?!
 
     def _find_cameras(

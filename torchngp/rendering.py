@@ -15,23 +15,26 @@ MAPKEY = Literal["color", "depth", "alpha"]
 class RadianceRenderer(torch.nn.Module):
     def __init__(
         self,
+        tsampler: sampling.RayStepSampler = None,
         ray_extension: float = 2.0,
     ) -> None:
         super().__init__()
         self.ray_extension = ray_extension
+        self.tsampler = tsampler or sampling.StratifiedRayStepSampler(256)
 
     def trace_uv(
         self,
         vol: volumes.Volume,
         cam: geometric.MultiViewCamera,
         uv: torch.Tensor,
-        tsampler: sampling.RayStepSampler,
+        tsampler: Optional[sampling.RayStepSampler] = None,
         which_maps: Optional[set[MAPKEY]] = None,
     ) -> dict[MAPKEY, Optional[torch.Tensor]]:
         # if ray_td is None:
         #     ray_td = torch.norm(self.aabb[1] - self.aabb[0]) / 1024
         if which_maps is None:
             which_maps = {"color", "alpha"}
+        tsampler = tsampler or self.tsampler
 
         # Output alloc
         bshape = uv.shape[:-1]
@@ -83,12 +86,13 @@ class RadianceRenderer(torch.nn.Module):
         self,
         vol: volumes.Volume,
         cam: geometric.MultiViewCamera,
-        tsampler: sampling.RayStepSampler,
+        tsampler: Optional[sampling.RayStepSampler],
         which_maps: Optional[set[MAPKEY]] = None,
         n_samples_per_cam: Optional[int] = None,
     ) -> dict[MAPKEY, Optional[torch.Tensor]]:
         if which_maps is None:
             which_maps = {"color", "alpha"}
+        tsampler = tsampler or self.tsampler
 
         gen = sampling.generate_sequential_uv_samples(
             camera=cam, image=None, n_samples_per_cam=n_samples_per_cam

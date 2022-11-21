@@ -38,10 +38,12 @@ def run_nerf_task(cfg: DictConfig):
     )
 
     # need 'all' or dataclass trainer is not instantiated
-    inst = instantiate(cfg, _convert_="all")
+    instcfg: dict = instantiate(cfg, _convert_="all")
 
-    trainer: training.NeRFTrainer = inst["trainer"]
-    trainer.train(inst["scene"], inst["volume"], inst["renderer"], inst["tsampler"])
+    trainer: training.NeRFTrainer = instcfg["trainer"]
+    train_renderer = instcfg.get("train_renderer", None)
+    val_renderer = instcfg.get("val_renderer", None)
+    trainer.train(instcfg["scene"], instcfg["volume"], train_renderer, val_renderer)
 
 
 def _get_qual_classname(cls):
