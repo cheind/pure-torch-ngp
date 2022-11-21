@@ -1,6 +1,6 @@
 scene:
     _target_: torchngp.io.load_scene_from_json
-    path: data/suzanne/transforms.json
+    path: data/trivial/transforms.json
     pose_to_cv: true
 volume:
     _target_: torchngp.volumes.Volume
