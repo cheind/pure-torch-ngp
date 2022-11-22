@@ -50,7 +50,7 @@ def _load_transform_json(path: str, pose_to_cv: bool) -> config.SceneConf:
 
     scale = data.get("scale", 0.33)
     aabb_scale = data.get("aabb_scale", 1.0)
-    offset = data.get("offset", 0.5)
+    offset = data.get("offset", 0.0)
 
     if "aabb" not in data:
         _logger.debug(
