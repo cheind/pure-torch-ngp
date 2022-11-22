@@ -135,7 +135,9 @@ class RadianceRenderer(torch.nn.Module):
         with_harmonics = vol.radiance_field.n_color_cond_dims > 0
         if with_harmonics:
             dn = rays.d / rays.dnorm
-            ray_ynm = functional.rsh_cart_3(dn).unsqueeze(0).expand(ts.shape[0], -1, -1)
+            ray_ynm = (
+                functional.rsh_cart_3(dn).unsqueeze(0).expand(ts.shape[0], -1, -1)
+            )  # (T,N,...,16)
 
         # Convert to ndc (T,N,...,3)
         xyz_ndc = vol.to_ndc(xyz)
