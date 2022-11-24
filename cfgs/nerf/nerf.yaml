@@ -9,7 +9,7 @@ volume:
         _target_: torchngp.radiance.NeRF
         n_colors: 3
         n_hidden: 64
-        n_encodings: 65536
+        n_encodings: 262144
         n_levels: 16
         n_color_cond: 16
         min_res: 32
@@ -18,33 +18,39 @@ volume:
         is_hdr: false
     spatial_filter:
         _target_: torchngp.filtering.OccupancyGridFilter
-        res: 64
-        density_initial: 0.02
+        res: 128
+        density_initial: 0.04
         density_threshold: 0.01
         stochastic_test: true
         update_interval: 8
         update_decay: 0.7
         update_noise_scale: null
         update_selection_rate: 0.25
-renderer:
+train_renderer:
     _target_: torchngp.rendering.RadianceRenderer
-    ray_extension: 2.0
-tsampler:
-    _target_: torchngp.sampling.StratifiedRayStepSampler
-    n_samples: 128
+    tsampler:
+        _target_: torchngp.sampling.StratifiedRayStepSampler
+        n_samples: 512
+    ray_extension: 10.0
+val_renderer:
+    _target_: torchngp.rendering.RadianceRenderer
+    tsampler:
+        _target_: torchngp.sampling.StratifiedRayStepSampler
+        n_samples: 512
+    ray_extension: 10.0
 trainer:
     _target_: torchngp.training.NeRFTrainer
     output_dir: ${hydra:runtime.output_dir}
     train_cam_idx: 0
-    train_slice: null
+    train_slice: ":3"
     train_max_time: 600.0
-    train_max_epochs: 3
+    train_max_epochs: 100
     val_cam_idx: -1
-    val_slice: :3
-    n_rays_batch: 16384
-    n_rays_minibatch: 16384
+    val_slice: ":3"
+    n_rays_batch: 8000
+    n_rays_minibatch: 8000
     val_n_rays: 1000000
-    val_min_loss: 0.005
+    val_min_loss: 0.01
     n_worker: 4
     use_amp: true
     random_uv: true
@@ -61,6 +67,6 @@ trainer:
         decay_density: 1.0e-06
         decay_color: 1.0e-06
         sched_factor: 0.75
-        sched_patience: 20
+        sched_patience: 200
         sched_minlr: 0.0001
     dev: null
