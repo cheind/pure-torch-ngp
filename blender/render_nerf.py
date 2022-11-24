@@ -233,3 +233,4 @@ if __name__ == "__main__":
 # without rendering
 # blender nerf.blend -o c:\tmp\ -b --python render_nerf.py -- -t Suzanne -r 10
 # blender nerf.blend -o c:\tmp\suzanne\image#### --python render_nerf.py -b -a -- -t Suzanne -n 20
+# blender data/trivial/trivial.blend -o data/trivial/image#### --python blender/render_nerf.py -- -t Plane -n 5
