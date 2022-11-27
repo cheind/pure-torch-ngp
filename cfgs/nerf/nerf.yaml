@@ -13,7 +13,7 @@ volume:
         n_levels: 16
         n_color_cond: 16
         min_res: 16
-        max_res: 2048
+        max_res: 512
         max_res_dense: 256
         is_hdr: false
     spatial_filter:
