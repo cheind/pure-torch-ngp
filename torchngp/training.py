@@ -2,7 +2,8 @@ import copy
 import dataclasses
 import logging
 import time
-from typing import Union, Optional
+import math
+from typing import Union, Optional, Protocol
 from itertools import islice
 
 import torch
@@ -13,7 +14,15 @@ from PIL import Image
 from tqdm import tqdm
 from pathlib import Path
 
-from . import geometric, rendering, sampling, scenes, volumes, plotting, radiance
+from . import (
+    geometric,
+    rendering,
+    sampling,
+    scenes,
+    volumes,
+    plotting,
+    radiance,
+)
 
 _logger = logging.getLogger("torchngp")
 
@@ -132,6 +141,14 @@ def save_image(fname: Union[str, Path], rgba: torch.Tensor):
     Image.fromarray(grid_img, mode="RGBA").save(fname)
 
 
+class TrainingsCallback(Protocol):
+    def after_training_step(self, trainer: "NeRFTrainer"):
+        pass
+
+
+
+
+
 @dataclasses.dataclass
 class OptimizerParams:
     lr: float = 1e-2
@@ -154,16 +171,17 @@ class NeRFTrainer:
     train_max_epochs: int = 3
     val_cam_idx: int = -1
     val_slice: Optional[str] = ":3"
-    n_rays_batch: int = 2**14
-    n_rays_minibatch: int = 2**14
-    val_n_rays: int = int(1e6)
-    val_min_loss: float = 5e-3
+    n_rays_batch_log2: int = 14
+    n_rays_minibatch_log2: int = 14
     n_worker: int = 4
     use_amp: bool = True
     random_uv: bool = True
     subpixel_uv: bool = True
     preload: bool = False
     optimizer: OptimizerParams = dataclasses.field(default_factory=OptimizerParams)
+    callbacks: list[TrainingsCallback] = dataclasses.field(
+        default_factory=list
+    )
     dev: Optional[torch.device] = None
 
     def __post_init__(self):
@@ -175,8 +193,11 @@ class NeRFTrainer:
             )
         self.dev = self.dev
         self.output_dir = Path(self.output_dir)
+        self.n_rays_batch = 2**self.n_rays_batch_log2
+        self.n_rays_minibatch = 2**self.n_rays_minibatch_log2
         _logger.info(f"Using device {self.dev}")
         _logger.info(f"Output directory set to {self.output_dir.as_posix()}")
+        _logger.info(f"Processing {self.n_rays_batch} rays per optimizer step with a maximum of {self.n_rays_minibatch} parallel rays.")
 
     def train(
         self,
@@ -198,16 +219,15 @@ class NeRFTrainer:
         self._move_mods_to_device()
 
         # Locate the cameras to be used for training/validating
-        train_cam, val_cam = self._find_cameras()
+        self.train_cam, self.val_cam = self._find_cameras()
 
         # Bookkeeping
-        n_acc_steps = self.n_rays_batch // self.n_rays_minibatch
-        n_rays_per_view = int(self.n_rays_minibatch / train_cam.n_views / self.n_worker)
-        val_interval = max(int(self.val_n_rays / self.n_rays_batch), 1)
-
+        self.n_acc_steps = self.n_rays_batch // self.n_rays_minibatch
+        self.n_rays_per_view = int(self.n_rays_minibatch / self.train_cam.n_views / self.n_worker)
+        
         # Train dataloader
         train_dl = self._create_train_dataloader(
-            train_cam, n_rays_per_view, self.n_worker
+            self.train_cam, self.n_rays_per_view, self.n_worker
         )
 
         # Create optimizers, schedulers
@@ -218,70 +238,46 @@ class NeRFTrainer:
 
         # Setup closure for gradient accumulation
         fwd_bwd_fn = create_fwd_bwd_closure(
-            self.volume, self.train_renderer, None, scaler, n_acc_steps=n_acc_steps
+            self.volume, self.train_renderer, None, scaler, n_acc_steps=self.n_acc_steps
         )
 
         # Enter main loop
         pbar_postfix = {"loss": 0.0}
         self.global_step = 0
+        self.current_loss = 0.0
         loss_acc = 0.0
         t_started = time.time()
-        t_val_elapsed = 0.0
+        t_callbacks_elapsed = 0.0
         for _ in range(self.train_max_epochs):
             pbar = tqdm(train_dl, mininterval=0.1, leave=False)
             for uv, rgba in pbar:
-                if (time.time() - t_started - t_val_elapsed) > self.train_max_time:
+                if (time.time() - t_started - t_callbacks_elapsed) > self.train_max_time:
                     _logger.info("Max training time elapsed.")
                     return
                 uv = uv.to(self.dev)
                 rgba = rgba.to(self.dev)
-                loss = fwd_bwd_fn(train_cam, uv, rgba)
+                loss = fwd_bwd_fn(self.train_cam, uv, rgba)
                 loss_acc += loss.item()
 
-                if (self.global_step + 1) % n_acc_steps == 0:
+                if (self.global_step + 1) % self.n_acc_steps == 0:
                     scaler.step(opt)
                     scaler.update()
                     sched.step(loss)
                     opt.zero_grad(set_to_none=True)
-                    self.volume.spatial_filter.update(
-                        self.volume.radiance_field,
-                        global_step=self.global_step,
-                    )
-
-                    pbar_postfix["loss"] = loss_acc
+                    self.current_loss = loss_acc
+                    pbar_postfix["loss"] = self.current_loss
                     pbar_postfix["lr"] = sched._last_lr[0]  # type: ignore
                     loss_acc = 0.0
 
-                if ((self.global_step + 1) % val_interval == 0) and (
-                    pbar_postfix["loss"] <= self.val_min_loss
-                ):
-                    t_val_start = time.time()
-                    # TODO: consider number of rays, gpu not utilized! also instead of
-                    # stack copy image, parts in trace_maps?
-                    self.validation_step(
-                        val_camera=val_cam, n_rays_per_view=self.n_rays_minibatch
-                    )
-                    t_val_elapsed += time.time() - t_val_start
-
+                t_callbacks_start = time.time()
+                for cb in self.callbacks:
+                    cb.after_training_step(self)
+                t_callbacks_elapsed += time.time() - t_callbacks_start
+                
                 pbar.set_postfix(**pbar_postfix, refresh=False)
                 self.global_step += 1
 
-    @torch.no_grad()
-    def validation_step(
-        self, val_camera: geometric.MultiViewCamera, n_rays_per_view: int
-    ):
-        val_rgba = render_images(
-            self.volume,
-            self.val_renderer,
-            val_camera,
-            None,
-            self.use_amp,
-            n_samples_per_view=n_rays_per_view,
-        )
-        save_image(self.output_dir / f"img_val_step={self.global_step}.png", val_rgba)
-        # TODO:this is a different loss than in training
-        # val_loss = F.mse_loss(val_rgba[:, :3], val_scene.images.to(dev)[:, :3])
-        # pbar_postfix["val_loss"] = val_loss.item()
+
 
     def _create_train_dataloader(
         self, train_cam: geometric.MultiViewCamera, n_rays_per_view: int, n_worker: int
@@ -360,3 +356,47 @@ def _string_to_slice(sstr):
         slice(*(int(i) if i else None for i in part.strip().split(":")))
         for part in sstr.strip("[]").split(",")
     )
+
+class IntervalTrainingsCallback(TrainingsCallback):
+    def __init__(self, n_rays_interval_log2: int, callback: TrainingsCallback) -> None:
+        self.step_interval = None
+        self.n_rays_interval_log2 = n_rays_interval_log2
+        self.callback = callback
+
+    def after_training_step(self, trainer: "NeRFTrainer"):
+        if self.step_interval == None:
+            self.step_interval = int(
+                math.ceil(max(1.0, 2**self.n_rays_interval_log2 / trainer.n_rays_batch))
+            )
+        if (trainer.global_step + 1) % self.step_interval == 0:
+            self.callback(trainer)
+
+
+class UpdateSpatialFilterCallback(IntervalTrainingsCallback):
+    def __init__(self, n_rays_interval_log2: int) -> None:
+        super().__init__(n_rays_interval_log2, callback=self)
+
+    def __call__(self, trainer: NeRFTrainer):
+        trainer.volume.spatial_filter.update(trainer.volume.radiance_field)
+
+class ValidationCallback(IntervalTrainingsCallback):
+    def __init__(self, n_rays_interval_log2: int, min_loss:float=5e-3) -> None:
+        super().__init__(n_rays_interval_log2, callback=self)
+        self.min_loss=min_loss
+    
+    @torch.no_grad()
+    def __call__(self, trainer: NeRFTrainer):
+        if trainer.current_loss > self.min_loss:
+            return
+        val_rgba = render_images(
+            trainer.volume,
+            trainer.val_renderer,
+            trainer.val_cam,
+            None,
+            trainer.use_amp,
+            n_samples_per_view=int(trainer.n_rays_minibatch / trainer.val_cam.n_views)
+        )
+        save_image(trainer.output_dir / f"img_val_step={trainer.global_step}.png", val_rgba)        
+        # TODO:this is a different loss than in training
+        # val_loss = F.mse_loss(val_rgba[:, :3], val_scene.images.to(dev)[:, :3])
+        # pbar_postfix["val_loss"] = val_loss.item()

@@ -24,7 +24,7 @@ class SpatialFilter(Protocol):
         """
         ...
 
-    def update(self, rf: RadianceField, global_step: int):
+    def update(self, rf: RadianceField):
         """Update this accelerator."""
         ...
 
@@ -34,8 +34,8 @@ class BoundsFilter(torch.nn.Module, SpatialFilter):
         mask = ((xyz_ndc >= -1.0) & (xyz_ndc <= 1.0)).all(-1)
         return mask
 
-    def update(self, rf: RadianceField, global_step: int):
-        del rf, global_step
+    def update(self, rf: RadianceField):
+        del rf
         pass
 
 
@@ -46,14 +46,12 @@ class OccupancyGridFilter(BoundsFilter, torch.nn.Module):
         density_initial=0.02,
         density_threshold=0.01,
         stochastic_test: bool = True,
-        update_interval: int = 8,
         update_decay: float = 0.7,
         update_noise_scale: float = None,
         update_selection_rate=0.25,
     ) -> None:
         torch.nn.Module.__init__(self)
         self.res = res
-        self.update_interval = update_interval
         self.update_decay = update_decay
         self.density_initial = density_initial
         self.density_threshold = density_threshold
@@ -80,10 +78,7 @@ class OccupancyGridFilter(BoundsFilter, torch.nn.Module):
         return mask & d_mask
 
     @torch.no_grad()
-    def update(self, rf: RadianceField, global_step: int):
-        if (global_step + 1) % self.update_interval > 0:
-            return
-
+    def update(self, rf: RadianceField):
         self.grid *= self.update_decay
 
         if self.update_selection_rate < 1.0:

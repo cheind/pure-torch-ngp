@@ -176,7 +176,7 @@ def test_radiance_nerf_module():
     nerf = radiance.NeRF(
         n_colors=3,
         n_hidden=16,
-        n_encodings=2**8,
+        n_encodings_log2=8,
         n_color_cond=16,
         n_levels=4,
         min_res=16,

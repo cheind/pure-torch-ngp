@@ -113,12 +113,12 @@ class NeRF(torch.nn.Module, RadianceField):
         self,
         n_colors: int = 3,
         n_hidden: int = 64,
-        n_encodings: int = 2**16,
+        n_encodings_log2: int = 16,
         n_levels: int = 16,
         n_color_cond: int = 16,
         min_res: int = 32,
         max_res: int = 512,
-        max_n_dense: int = 256**3,
+        max_res_dense: int = 256,
         is_hdr: bool = False,
     ) -> None:
         super().__init__()
@@ -127,13 +127,13 @@ class NeRF(torch.nn.Module, RadianceField):
         self.n_color_dims = n_colors
         self.n_density_dims = 1
         self.pos_encoder = encoding.MultiLevelHybridHashEncoding(
-            n_encodings=n_encodings,
+            n_encodings=2**n_encodings_log2,
             n_input_dims=3,
             n_embed_dims=2,
             n_levels=n_levels,
             min_res=min_res,
             max_res=max_res,
-            max_n_dense=max_n_dense,
+            max_n_dense=max_res_dense**3,
         )
         n_enc_features = self.pos_encoder.n_levels * self.pos_encoder.n_embed_dims
         # 1-layer hidden density mlp
