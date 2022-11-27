@@ -12,8 +12,8 @@ volume:
         n_encodings_log2: 18
         n_levels: 16
         n_color_cond: 16
-        min_res: 32
-        max_res: 512
+        min_res: 16
+        max_res: 2048
         max_res_dense: 256
         is_hdr: false
     spatial_filter:
@@ -41,10 +41,10 @@ trainer:
     _target_: torchngp.training.NeRFTrainer
     output_dir: ${hydra:runtime.output_dir}
     train_cam_idx: 0
-    train_slice: ":3"
+    train_slice: null
     train_max_time: 600.0
-    val_cam_idx: -1
-    val_slice: ":3"
+    val_cam_idx: 0
+    val_slice: 84:87
     n_rays_batch_log2: 13
     n_rays_minibatch_log2: 13
     n_worker: 4
@@ -60,11 +60,11 @@ trainer:
             - 0.99
         eps: 1.0e-15
         decay_encoder: 0.0
-        decay_density: 1.0e-06
-        decay_color: 1.0e-06
+        decay_density: 1.0e-07
+        decay_color: 1.0e-07
         sched_factor: 0.75
         sched_patience: 200
-        sched_minlr: 0.0001
+        sched_minlr: 0.0005
     dev: null
     callbacks:
         -   _target_: torchngp.training.UpdateSpatialFilterCallback

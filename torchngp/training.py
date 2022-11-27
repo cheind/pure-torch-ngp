@@ -47,6 +47,7 @@ class MultiViewDataset(torch.utils.data.IterableDataset):
         self.subpixel = subpixel if random else False
 
     def __iter__(self):
+        n_worker = torch.utils.data.get_worker_info().num_workers
         if self.random:
             return islice(
                 sampling.generate_random_uv_samples(
@@ -55,7 +56,7 @@ class MultiViewDataset(torch.utils.data.IterableDataset):
                     n_samples_per_cam=self.n_rays_per_view,
                     subpixel=self.subpixel,
                 ),
-                len(self),
+                int(math.ceil(len(self)/n_worker)),
             )
         else:
             return sampling.generate_sequential_uv_samples(
@@ -67,7 +68,7 @@ class MultiViewDataset(torch.utils.data.IterableDataset):
 
     def __len__(self) -> int:
         # Number of mini-batches required to match with number of total pixels
-        return self.n_pixels_per_cam // self.n_rays_per_view
+        return int(math.ceil(self.n_pixels_per_cam / self.n_rays_per_view))
 
 
 def create_fwd_bwd_closure(
@@ -168,7 +169,6 @@ class NeRFTrainer:
     train_cam_idx: int = 0
     train_slice: Optional[str] = None
     train_max_time: float = 60 * 10
-    train_max_epochs: int = 3
     val_cam_idx: int = -1
     val_slice: Optional[str] = ":3"
     n_rays_batch_log2: int = 14
@@ -248,9 +248,9 @@ class NeRFTrainer:
         loss_acc = 0.0
         t_started = time.time()
         t_callbacks_elapsed = 0.0
-        for _ in range(self.train_max_epochs):
-            pbar = tqdm(train_dl, mininterval=0.1, leave=False)
-            for uv, rgba in pbar:
+        while True:
+            pbar = tqdm(total=len(train_dl), mininterval=0.1, leave=False)
+            for uv, rgba in train_dl:
                 if (time.time() - t_started - t_callbacks_elapsed) > self.train_max_time:
                     _logger.info("Max training time elapsed.")
                     return
@@ -275,6 +275,7 @@ class NeRFTrainer:
                 t_callbacks_elapsed += time.time() - t_callbacks_start
                 
                 pbar.set_postfix(**pbar_postfix, refresh=False)
+                pbar.update(1)
                 self.global_step += 1
 
 
