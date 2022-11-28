@@ -56,7 +56,7 @@ class MultiViewDataset(torch.utils.data.IterableDataset):
                     n_samples_per_cam=self.n_rays_per_view,
                     subpixel=self.subpixel,
                 ),
-                int(math.ceil(len(self)/n_worker)),
+                int(math.ceil(len(self) / n_worker)),
             )
         else:
             return sampling.generate_sequential_uv_samples(
@@ -147,9 +147,6 @@ class TrainingsCallback(Protocol):
         pass
 
 
-
-
-
 @dataclasses.dataclass
 class OptimizerParams:
     lr: float = 1e-2
@@ -179,9 +176,7 @@ class NeRFTrainer:
     subpixel_uv: bool = True
     preload: bool = False
     optimizer: OptimizerParams = dataclasses.field(default_factory=OptimizerParams)
-    callbacks: list[TrainingsCallback] = dataclasses.field(
-        default_factory=list
-    )
+    callbacks: list[TrainingsCallback] = dataclasses.field(default_factory=list)
     dev: Optional[torch.device] = None
 
     def __post_init__(self):
@@ -197,7 +192,10 @@ class NeRFTrainer:
         self.n_rays_minibatch = 2**self.n_rays_minibatch_log2
         _logger.info(f"Using device {self.dev}")
         _logger.info(f"Output directory set to {self.output_dir.as_posix()}")
-        _logger.info(f"Processing {self.n_rays_batch} rays per optimizer step with a maximum of {self.n_rays_minibatch} parallel rays.")
+        _logger.info(
+            f"Processing {self.n_rays_batch} rays per optimizer step with a maximum of"
+            f" {self.n_rays_minibatch} parallel rays."
+        )
 
     def train(
         self,
@@ -223,8 +221,10 @@ class NeRFTrainer:
 
         # Bookkeeping
         self.n_acc_steps = self.n_rays_batch // self.n_rays_minibatch
-        self.n_rays_per_view = int(self.n_rays_minibatch / self.train_cam.n_views / self.n_worker)
-        
+        self.n_rays_per_view = int(
+            self.n_rays_minibatch / self.train_cam.n_views / self.n_worker
+        )
+
         # Train dataloader
         train_dl = self._create_train_dataloader(
             self.train_cam, self.n_rays_per_view, self.n_worker
@@ -251,7 +251,9 @@ class NeRFTrainer:
         while True:
             pbar = tqdm(total=len(train_dl), mininterval=0.1, leave=False)
             for uv, rgba in train_dl:
-                if (time.time() - t_started - t_callbacks_elapsed) > self.train_max_time:
+                if (
+                    time.time() - t_started - t_callbacks_elapsed
+                ) > self.train_max_time:
                     _logger.info("Max training time elapsed.")
                     return
                 uv = uv.to(self.dev)
@@ -273,12 +275,10 @@ class NeRFTrainer:
                 for cb in self.callbacks:
                     cb.after_training_step(self)
                 t_callbacks_elapsed += time.time() - t_callbacks_start
-                
+
                 pbar.set_postfix(**pbar_postfix, refresh=False)
                 pbar.update(1)
                 self.global_step += 1
-
-
 
     def _create_train_dataloader(
         self, train_cam: geometric.MultiViewCamera, n_rays_per_view: int, n_worker: int
@@ -358,6 +358,7 @@ def _string_to_slice(sstr):
         for part in sstr.strip("[]").split(",")
     )
 
+
 class IntervalTrainingsCallback(TrainingsCallback):
     def __init__(self, n_rays_interval_log2: int, callback: TrainingsCallback) -> None:
         self.step_interval = None
@@ -367,7 +368,9 @@ class IntervalTrainingsCallback(TrainingsCallback):
     def after_training_step(self, trainer: "NeRFTrainer"):
         if self.step_interval == None:
             self.step_interval = int(
-                math.ceil(max(1.0, 2**self.n_rays_interval_log2 / trainer.n_rays_batch))
+                math.ceil(
+                    max(1.0, 2**self.n_rays_interval_log2 / trainer.n_rays_batch)
+                )
             )
         if (trainer.global_step + 1) % self.step_interval == 0:
             self.callback(trainer)
@@ -380,11 +383,12 @@ class UpdateSpatialFilterCallback(IntervalTrainingsCallback):
     def __call__(self, trainer: NeRFTrainer):
         trainer.volume.spatial_filter.update(trainer.volume.radiance_field)
 
+
 class ValidationCallback(IntervalTrainingsCallback):
-    def __init__(self, n_rays_interval_log2: int, min_loss:float=5e-3) -> None:
+    def __init__(self, n_rays_interval_log2: int, min_loss: float = 5e-3) -> None:
         super().__init__(n_rays_interval_log2, callback=self)
-        self.min_loss=min_loss
-    
+        self.min_loss = min_loss
+
     @torch.no_grad()
     def __call__(self, trainer: NeRFTrainer):
         if trainer.current_loss > self.min_loss:
@@ -395,9 +399,31 @@ class ValidationCallback(IntervalTrainingsCallback):
             trainer.val_cam,
             None,
             trainer.use_amp,
-            n_samples_per_view=int(trainer.n_rays_minibatch / trainer.val_cam.n_views)
+            n_samples_per_view=int(trainer.n_rays_minibatch / trainer.val_cam.n_views),
         )
-        save_image(trainer.output_dir / f"img_val_step={trainer.global_step}.png", val_rgba)        
+        save_image(
+            trainer.output_dir / f"img_val_step={trainer.global_step}.png", val_rgba
+        )
         # TODO:this is a different loss than in training
         # val_loss = F.mse_loss(val_rgba[:, :3], val_scene.images.to(dev)[:, :3])
         # pbar_postfix["val_loss"] = val_loss.item()
+
+
+# class ExportCallback(IntervalTrainingsCallback):
+#     def __init__(
+#         self,
+#         n_rays_interval_log2: int,
+#         min_loss: float = 5e-3,
+#     ) -> None:
+#         super().__init__(n_rays_interval_log2, callback=self)
+#         self.min_loss = min_loss
+
+#     @torch.no_grad()
+#     def __call__(self, trainer: NeRFTrainer):
+#         if trainer.current_loss > self.min_loss:
+#             return
+#         path = trainer.output_dir / f"nerf_step={trainer.global_step}.png"
+#         torch.save()
+
+#         trainer.scene
+#         trainer.volume
