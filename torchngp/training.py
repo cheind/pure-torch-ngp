@@ -366,7 +366,7 @@ class IntervalTrainingsCallback(TrainingsCallback):
         self.callback = callback
 
     def after_training_step(self, trainer: "NeRFTrainer"):
-        if self.step_interval == None:
+        if self.step_interval is None:
             self.step_interval = int(
                 math.ceil(
                     max(1.0, 2**self.n_rays_interval_log2 / trainer.n_rays_batch)
