@@ -4,6 +4,7 @@ import torch
 
 from . import functional
 from . import encoding
+from . import config
 
 
 class RadianceField(Protocol):
@@ -241,3 +242,6 @@ class NeRF(torch.nn.Module, RadianceField):
         sigma = self.decode_density(f)
         color = self.decode_color(f, cond=color_cond)
         return color, sigma
+
+
+NeRFConf = config.build_conf(NeRF)

@@ -5,6 +5,7 @@ import torch.nn.functional as F
 
 from . import geometric
 from . import functional
+from . import config
 
 
 def generate_random_uv_samples(
@@ -122,6 +123,9 @@ class StratifiedRayStepSampler(torch.nn.Module, RayStepSampler):
         return functional.sample_ray_step_stratified(
             rays.tnear, rays.tfar, self.n_samples
         )
+
+
+StratifiedRayStepSamplerConf = config.build_conf(StratifiedRayStepSampler)
 
 
 def _sample_features_uv(

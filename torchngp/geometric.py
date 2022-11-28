@@ -10,6 +10,7 @@ import numpy as np
 
 
 from . import functional
+from . import config
 
 
 class MultiViewCamera(torch.nn.Module):
@@ -158,6 +159,9 @@ class MultiViewCamera(torch.nn.Module):
         out += f"size={self.size}, "
         out += f"n_poses={self.n_views}"
         return out
+
+
+MultiViewCameraConf = config.build_conf(MultiViewCamera)
 
 
 @dataclasses.dataclass

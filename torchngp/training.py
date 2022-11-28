@@ -22,6 +22,7 @@ from . import (
     volumes,
     plotting,
     radiance,
+    config,
 )
 
 _logger = logging.getLogger("torchngp")
@@ -162,12 +163,13 @@ class OptimizerParams:
 
 @dataclasses.dataclass
 class NeRFTrainer:
+    volume: volumes.Volume
+    train_camera: geometric.MultiViewCamera
+    val_camera: Optional[geometric.MultiViewCamera] = None
+    train_renderer: Optional[rendering.RadianceRenderer] = None
+    val_renderer: Optional[rendering.RadianceRenderer] = None
     output_dir: Path = Path("./tmp")
-    train_cam_idx: int = 0
-    train_slice: Optional[str] = None
     train_max_time: float = 60 * 10
-    val_cam_idx: int = -1
-    val_slice: Optional[str] = ":3"
     n_rays_batch_log2: int = 14
     n_rays_minibatch_log2: int = 14
     n_worker: int = 4
@@ -175,9 +177,11 @@ class NeRFTrainer:
     random_uv: bool = True
     subpixel_uv: bool = True
     preload: bool = False
+    dev: Optional[torch.device] = None
     optimizer: OptimizerParams = dataclasses.field(default_factory=OptimizerParams)
     callbacks: list[TrainingsCallback] = dataclasses.field(default_factory=list)
-    dev: Optional[torch.device] = None
+    n_acc_setps: int = dataclasses.field(init=False)
+    n_rays_per_view: int = dataclasses.field(init=False)
 
     def __post_init__(self):
         if self.dev is None:
@@ -186,10 +190,19 @@ class NeRFTrainer:
                 if torch.cuda.is_available()
                 else torch.device("cpu")
             )
-        self.dev = self.dev
+        if self.val_camera is None:
+            self.val_camera = self.train_cam[:3]
+        if self.train_renderer is None:
+            self.train_renderer = rendering.RadianceRenderer()
+        if self.val_renderer is None:
+            self.val_renderer = self.train_renderer
         self.output_dir = Path(self.output_dir)
         self.n_rays_batch = 2**self.n_rays_batch_log2
         self.n_rays_minibatch = 2**self.n_rays_minibatch_log2
+        self.n_acc_steps = self.n_rays_batch // self.n_rays_minibatch
+        self.n_rays_per_view = int(
+            self.n_rays_minibatch / self.train_cam.n_views / self.n_worker
+        )
         _logger.info(f"Using device {self.dev}")
         _logger.info(f"Output directory set to {self.output_dir.as_posix()}")
         _logger.info(
@@ -197,33 +210,10 @@ class NeRFTrainer:
             f" {self.n_rays_minibatch} parallel rays."
         )
 
-    def train(
-        self,
-        scene: scenes.Scene,
-        volume: volumes.Volume,
-        train_renderer: Optional[rendering.RadianceRenderer] = None,
-        val_renderer: Optional[rendering.RadianceRenderer] = None,
-    ):
-        self.scene = scene
-        self.volume = volume
-        self.train_renderer = train_renderer or rendering.RadianceRenderer(
-            ray_extension=1.0
-        )
-        self.val_renderer = val_renderer or rendering.RadianceRenderer(
-            ray_extension=1.0
-        )
+    def train(self):
 
         # Move all relevent modules to device
         self._move_mods_to_device()
-
-        # Locate the cameras to be used for training/validating
-        self.train_cam, self.val_cam = self._find_cameras()
-
-        # Bookkeeping
-        self.n_acc_steps = self.n_rays_batch // self.n_rays_minibatch
-        self.n_rays_per_view = int(
-            self.n_rays_minibatch / self.train_cam.n_views / self.n_worker
-        )
 
         # Train dataloader
         train_dl = self._create_train_dataloader(
@@ -302,19 +292,14 @@ class NeRFTrainer:
         return train_dl
 
     def _move_mods_to_device(self):
-        for m in [self.scene, self.volume, self.train_renderer, self.val_renderer]:
+        for m in [
+            self.volume,
+            self.train_renderer,
+            self.val_renderer,
+            self.train_cam,
+            self.val_cam,
+        ]:
             m.to(self.dev)  # changes self.scene to be on device as well?!
-
-    def _find_cameras(
-        self,
-    ) -> tuple[geometric.MultiViewCamera, geometric.MultiViewCamera]:
-        train_cam: geometric.MultiViewCamera = self.scene.cameras[self.train_cam_idx]
-        val_cam: geometric.MultiViewCamera = self.scene.cameras[self.val_cam_idx]
-        if self.train_slice is not None:
-            train_cam = train_cam[_string_to_slice(self.train_slice)]
-        if self.val_slice is not None:
-            val_cam = val_cam[_string_to_slice(self.val_slice)]
-        return train_cam, val_cam
 
     def _create_optimizers(
         self,
@@ -351,12 +336,15 @@ class NeRFTrainer:
         return opt, sched
 
 
-def _string_to_slice(sstr):
-    # https://stackoverflow.com/questions/43089907/using-a-string-to-define-numpy-array-slice
-    return tuple(
-        slice(*(int(i) if i else None for i in part.strip().split(":")))
-        for part in sstr.strip("[]").split(",")
-    )
+NeRFTrainerConf = config.build_conf(NeRFTrainer)
+
+
+# def _string_to_slice(sstr):
+#     # https://stackoverflow.com/questions/43089907/using-a-string-to-define-numpy-array-slice
+#     return tuple(
+#         slice(*(int(i) if i else None for i in part.strip().split(":")))
+#         for part in sstr.strip("[]").split(",")
+#     )
 
 
 class IntervalTrainingsCallback(TrainingsCallback):

@@ -3,6 +3,7 @@ from typing import Protocol
 import torch
 
 from . import functional
+from . import config
 from .radiance import RadianceField
 
 
@@ -37,6 +38,9 @@ class BoundsFilter(torch.nn.Module, SpatialFilter):
     def update(self, rf: RadianceField):
         del rf
         pass
+
+
+BoundsFilterConf = config.build_conf(BoundsFilter)
 
 
 class OccupancyGridFilter(BoundsFilter, torch.nn.Module):
@@ -102,3 +106,6 @@ class OccupancyGridFilter(BoundsFilter, torch.nn.Module):
         cur = self.grid[ijk[:, 2], ijk[:, 1], ijk[:, 0]]
         new = torch.maximum(d, cur)
         self.grid[ijk[:, 2], ijk[:, 1], ijk[:, 0]] = new
+
+
+OccupancyGridFilterConf = config.build_conf(OccupancyGridFilter)

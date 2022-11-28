@@ -2,12 +2,11 @@ from typing import Literal, Optional
 from collections import defaultdict
 import torch
 
-from . import radiance
 from . import sampling
 from . import geometric
-from . import filtering
 from . import volumes
 from . import functional
+from . import config
 
 MAPKEY = Literal["color", "depth", "alpha"]
 
@@ -156,3 +155,9 @@ class RadianceRenderer(torch.nn.Module):
         out_color[mask] = color.to(out_color.dtype)
         out_density[mask] = density.to(density.dtype)
         return out_color, out_density
+
+
+RadianceRendererConf = config.build_conf(
+    RadianceRenderer,
+    tsampler=sampling.StratifiedRayStepSamplerConf(128),
+)
