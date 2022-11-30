@@ -1,5 +1,0 @@
-_target_: torchngp.io.load_scene_from_json
-path:
-    - data/lego/transforms_train.json
-    - data/lego/transforms_val.json
-pose_to_cv: true

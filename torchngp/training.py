@@ -18,7 +18,6 @@ from . import (
     geometric,
     rendering,
     sampling,
-    scenes,
     volumes,
     plotting,
     radiance,

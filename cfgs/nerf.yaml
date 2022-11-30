@@ -1,16 +1,4 @@
-data:
-    aabb:
-        _target_: torchngp.io.aabb_from_json
-        path: data/lego/transforms_train.json
-    cameras:
-        train_camera:
-            _target_: torchngp.io.cam_from_json
-            path: data/lego/transforms_train.json
-            slice: ":3"
-        val_camera:
-            _target_: torchngp.io.cam_from_json
-            path: data/lego/transforms_train.json
-            slice: "-3:"
+data: ???
 volume:
     _target_: torchngp.volumes.Volume
     aabb: "${data.aabb}"
