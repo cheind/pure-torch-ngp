@@ -1,10 +1,19 @@
-scene:
-    _target_: torchngp.io.load_scene_from_json
-    path: data/trivial/transforms.json
-    pose_to_cv: true
+data:
+    aabb:
+        _target_: torchngp.io.aabb_from_json
+        path: data/lego/transforms_train.json
+    cameras:
+        train_camera:
+            _target_: torchngp.io.cam_from_json
+            path: data/lego/transforms_train.json
+            slice: ":3"
+        val_camera:
+            _target_: torchngp.io.cam_from_json
+            path: data/lego/transforms_train.json
+            slice: "-3:"
 volume:
     _target_: torchngp.volumes.Volume
-    aabb: ${scene.aabb}
+    aabb: "${data.aabb}"
     radiance_field:
         _target_: torchngp.radiance.NeRF
         n_colors: 3
@@ -25,26 +34,28 @@ volume:
         update_decay: 0.7
         update_noise_scale: null
         update_selection_rate: 0.25
-train_renderer:
-    _target_: torchngp.rendering.RadianceRenderer
-    tsampler:
-        _target_: torchngp.sampling.StratifiedRayStepSampler
-        n_samples: 512
-    ray_extension: 10.0
-val_renderer:
-    _target_: torchngp.rendering.RadianceRenderer
-    tsampler:
-        _target_: torchngp.sampling.StratifiedRayStepSampler
-        n_samples: 512
-    ray_extension: 10.0
+renderer:
+    train_renderer:
+        _target_: torchngp.rendering.RadianceRenderer
+        tsampler:
+            _target_: torchngp.sampling.StratifiedRayStepSampler
+            n_samples: 512
+        ray_extension: 10.0
+    val_renderer:
+        _target_: torchngp.rendering.RadianceRenderer
+        tsampler:
+            _target_: torchngp.sampling.StratifiedRayStepSampler
+            n_samples: 512
+        ray_extension: 10.0
 trainer:
     _target_: torchngp.training.NeRFTrainer
+    volume: ${volume}
+    train_camera: ${data.cameras.train_camera}
+    val_camera: ${data.cameras.val_camera}
+    train_renderer: ${renderer.train_renderer}
+    val_renderer: ${renderer.val_renderer}
     output_dir: ${hydra:runtime.output_dir}
-    train_cam_idx: 0
-    train_slice: null
     train_max_time: 600.0
-    val_cam_idx: 0
-    val_slice: 84:87
     n_rays_batch_log2: 13
     n_rays_minibatch_log2: 13
     n_worker: 4
@@ -67,7 +78,7 @@ trainer:
         sched_minlr: 0.0005
     dev: null
     callbacks:
-        -   _target_: torchngp.training.UpdateSpatialFilterCallback
-            n_rays_interval_log2: 15
-        -   _target_: torchngp.training.ValidationCallback
-            n_rays_interval_log2: 20
+        - _target_: torchngp.training.UpdateSpatialFilterCallback
+          n_rays_interval_log2: 15
+        - _target_: torchngp.training.ValidationCallback
+          n_rays_interval_log2: 20

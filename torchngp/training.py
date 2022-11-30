@@ -180,7 +180,7 @@ class NeRFTrainer:
     dev: Optional[torch.device] = None
     optimizer: OptimizerParams = dataclasses.field(default_factory=OptimizerParams)
     callbacks: list[TrainingsCallback] = dataclasses.field(default_factory=list)
-    n_acc_setps: int = dataclasses.field(init=False)
+    n_acc_steps: int = dataclasses.field(init=False)
     n_rays_per_view: int = dataclasses.field(init=False)
 
     def __post_init__(self):
@@ -191,7 +191,7 @@ class NeRFTrainer:
                 else torch.device("cpu")
             )
         if self.val_camera is None:
-            self.val_camera = self.train_cam[:3]
+            self.val_camera = self.train_camera[:3]
         if self.train_renderer is None:
             self.train_renderer = rendering.RadianceRenderer()
         if self.val_renderer is None:
@@ -201,7 +201,7 @@ class NeRFTrainer:
         self.n_rays_minibatch = 2**self.n_rays_minibatch_log2
         self.n_acc_steps = self.n_rays_batch // self.n_rays_minibatch
         self.n_rays_per_view = int(
-            self.n_rays_minibatch / self.train_cam.n_views / self.n_worker
+            self.n_rays_minibatch / self.train_camera.n_views / self.n_worker
         )
         _logger.info(f"Using device {self.dev}")
         _logger.info(f"Output directory set to {self.output_dir.as_posix()}")
@@ -217,7 +217,7 @@ class NeRFTrainer:
 
         # Train dataloader
         train_dl = self._create_train_dataloader(
-            self.train_cam, self.n_rays_per_view, self.n_worker
+            self.train_camera, self.n_rays_per_view, self.n_worker
         )
 
         # Create optimizers, schedulers
@@ -248,7 +248,7 @@ class NeRFTrainer:
                     return
                 uv = uv.to(self.dev)
                 rgba = rgba.to(self.dev)
-                loss = fwd_bwd_fn(self.train_cam, uv, rgba)
+                loss = fwd_bwd_fn(self.train_camera, uv, rgba)
                 loss_acc += loss.item()
 
                 if (self.global_step + 1) % self.n_acc_steps == 0:
@@ -271,14 +271,17 @@ class NeRFTrainer:
                 self.global_step += 1
 
     def _create_train_dataloader(
-        self, train_cam: geometric.MultiViewCamera, n_rays_per_view: int, n_worker: int
+        self,
+        train_camera: geometric.MultiViewCamera,
+        n_rays_per_view: int,
+        n_worker: int,
     ):
         if not self.preload:
-            train_cam = copy.deepcopy(train_cam).cpu()
+            train_camera = copy.deepcopy(train_camera).cpu()
 
         train_ds = MultiViewDataset(
-            camera=train_cam,
-            images=train_cam.load_images(),
+            camera=train_camera,
+            images=train_camera.load_images(),
             n_rays_per_view=n_rays_per_view,
             random=self.random_uv,
             subpixel=self.subpixel_uv,
@@ -296,8 +299,8 @@ class NeRFTrainer:
             self.volume,
             self.train_renderer,
             self.val_renderer,
-            self.train_cam,
-            self.val_cam,
+            self.train_camera,
+            self.val_camera,
         ]:
             m.to(self.dev)  # changes self.scene to be on device as well?!
 
@@ -339,14 +342,6 @@ class NeRFTrainer:
 NeRFTrainerConf = config.build_conf(NeRFTrainer)
 
 
-# def _string_to_slice(sstr):
-#     # https://stackoverflow.com/questions/43089907/using-a-string-to-define-numpy-array-slice
-#     return tuple(
-#         slice(*(int(i) if i else None for i in part.strip().split(":")))
-#         for part in sstr.strip("[]").split(",")
-#     )
-
-
 class IntervalTrainingsCallback(TrainingsCallback):
     def __init__(self, n_rays_interval_log2: int, callback: TrainingsCallback) -> None:
         self.step_interval = None
@@ -384,10 +379,12 @@ class ValidationCallback(IntervalTrainingsCallback):
         val_rgba = render_images(
             trainer.volume,
             trainer.val_renderer,
-            trainer.val_cam,
+            trainer.val_camera,
             None,
             trainer.use_amp,
-            n_samples_per_view=int(trainer.n_rays_minibatch / trainer.val_cam.n_views),
+            n_samples_per_view=int(
+                trainer.n_rays_minibatch / trainer.val_camera.n_views
+            ),
         )
         save_image(
             trainer.output_dir / f"img_val_step={trainer.global_step}.png", val_rgba
