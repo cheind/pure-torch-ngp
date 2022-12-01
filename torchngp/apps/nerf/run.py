@@ -16,7 +16,7 @@ cs = ConfigStore.instance()
 cs.store(name="nerf_run", node=NerfTrainConf)
 
 
-@hydra.main(version_base="1.2", config_path=None, config_name="nerf")
+@hydra.main(version_base="1.2", config_path="../../../cfgs/", config_name="nerf")
 def run_task(cfg: DictConfig):
     _logger.info(f"Running NeRF on {cfg.data.name}")
     _logger.debug("Training config")

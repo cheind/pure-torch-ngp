@@ -2,42 +2,8 @@ hydra:
     run:
         dir: outputs/${now:%Y-%m-%d_%H-%M-%S}-${hydra.job.name}
 data: ???
-volume:
-    _target_: torchngp.volumes.Volume
-    aabb: "${data.aabb}"
-    radiance_field:
-        _target_: torchngp.radiance.NeRF
-        n_colors: 3
-        n_hidden: 64
-        n_encodings_log2: 18
-        n_levels: 16
-        n_color_cond: 16
-        min_res: 16
-        max_res: 512
-        max_res_dense: 256
-        is_hdr: false
-    spatial_filter:
-        _target_: torchngp.filtering.OccupancyGridFilter
-        res: 128
-        density_initial: 0.04
-        density_threshold: 0.01
-        stochastic_test: true
-        update_decay: 0.7
-        update_noise_scale: null
-        update_selection_rate: 0.25
-renderer:
-    train_renderer:
-        _target_: torchngp.rendering.RadianceRenderer
-        tsampler:
-            _target_: torchngp.sampling.StratifiedRayStepSampler
-            n_samples: 512
-        ray_ext_factor: 10.0
-    val_renderer:
-        _target_: torchngp.rendering.RadianceRenderer
-        tsampler:
-            _target_: torchngp.sampling.StratifiedRayStepSampler
-            n_samples: 512
-        ray_ext_factor: 10.0
+volume: ???
+renderer: ???
 trainer:
     _target_: torchngp.training.NeRFTrainer
     volume: ${volume}
@@ -72,10 +38,13 @@ trainer:
         - _target_: torchngp.training.UpdateSpatialFilterCallback
           n_rays_interval_log2: 15
         - _target_: torchngp.training.ValidationCallback
-          n_rays_interval_log2: 20
+          n_rays_interval_log2: 21
         - _target_: torchngp.training.ExportCallback
           n_rays_interval_log2: 22
 
 defaults:
-    - data: MISSING
+    - data: MISSING # forced to provide
+    - volume: standard
+    - renderer: standard
+    - trainer: standard
     - _self_
