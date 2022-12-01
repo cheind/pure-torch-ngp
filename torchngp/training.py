@@ -12,6 +12,7 @@ import torch.nn.functional as F
 import torch.utils.data
 from PIL import Image
 from tqdm import tqdm
+from tqdm.contrib.logging import logging_redirect_tqdm
 from pathlib import Path
 
 from . import (
@@ -238,36 +239,37 @@ class NeRFTrainer:
         t_started = time.time()
         t_callbacks_elapsed = 0.0
         while True:
-            pbar = tqdm(total=len(train_dl), mininterval=0.1, leave=False)
-            for uv, rgba in train_dl:
-                if (
-                    time.time() - t_started - t_callbacks_elapsed
-                ) > self.train_max_time:
-                    _logger.info("Max training time elapsed.")
-                    return
-                uv = uv.to(self.dev)
-                rgba = rgba.to(self.dev)
-                loss = fwd_bwd_fn(self.train_camera, uv, rgba)
-                loss_acc += loss.item()
+            with logging_redirect_tqdm():
+                pbar = tqdm(total=len(train_dl), mininterval=0.1, leave=False)
+                for uv, rgba in train_dl:
+                    if (
+                        time.time() - t_started - t_callbacks_elapsed
+                    ) > self.train_max_time:
+                        _logger.info("Max training time elapsed.")
+                        return
+                    uv = uv.to(self.dev)
+                    rgba = rgba.to(self.dev)
+                    loss = fwd_bwd_fn(self.train_camera, uv, rgba)
+                    loss_acc += loss.item()
 
-                if (self.global_step + 1) % self.n_acc_steps == 0:
-                    scaler.step(opt)
-                    scaler.update()
-                    sched.step(loss)
-                    opt.zero_grad(set_to_none=True)
-                    self.current_loss = loss_acc
-                    pbar_postfix["loss"] = self.current_loss
-                    pbar_postfix["lr"] = sched._last_lr[0]  # type: ignore
-                    loss_acc = 0.0
+                    if (self.global_step + 1) % self.n_acc_steps == 0:
+                        scaler.step(opt)
+                        scaler.update()
+                        sched.step(loss)
+                        opt.zero_grad(set_to_none=True)
+                        self.current_loss = loss_acc
+                        pbar_postfix["loss"] = self.current_loss
+                        pbar_postfix["lr"] = sched._last_lr[0]  # type: ignore
+                        loss_acc = 0.0
 
-                t_callbacks_start = time.time()
-                for cb in self.callbacks:
-                    cb.after_training_step(self)
-                t_callbacks_elapsed += time.time() - t_callbacks_start
+                    t_callbacks_start = time.time()
+                    for cb in self.callbacks:
+                        cb.after_training_step(self)
+                    t_callbacks_elapsed += time.time() - t_callbacks_start
 
-                pbar.set_postfix(**pbar_postfix, refresh=False)
-                pbar.update(1)
-                self.global_step += 1
+                    pbar.set_postfix(**pbar_postfix, refresh=False)
+                    pbar.update(1)
+                    self.global_step += 1
 
     def _create_train_dataloader(
         self,
@@ -375,6 +377,9 @@ class ValidationCallback(IntervalTrainingsCallback):
     def __call__(self, trainer: NeRFTrainer):
         if trainer.current_loss > self.min_loss:
             return
+        _logger.info(
+            f"Validation pass after {trainer.global_step*trainer.n_rays_batch} rays"
+        )
         val_rgba = render_images(
             trainer.volume,
             trainer.val_renderer,
@@ -386,7 +391,7 @@ class ValidationCallback(IntervalTrainingsCallback):
             ),
         )
         save_image(
-            trainer.output_dir / f"img_val_step={trainer.global_step}.png", val_rgba
+            trainer.output_dir / f"img_val_step_{trainer.global_step}.png", val_rgba
         )
         # TODO:this is a different loss than in training
         # val_loss = F.mse_loss(val_rgba[:, :3], val_scene.images.to(dev)[:, :3])
@@ -406,5 +411,6 @@ class ExportCallback(IntervalTrainingsCallback):
     def __call__(self, trainer: NeRFTrainer):
         if trainer.current_loss > self.min_loss:
             return
-        path = trainer.output_dir / f"nerf_step={trainer.global_step}.pth"
+        path = trainer.output_dir / f"nerf_step_{trainer.global_step}.pth"
+        _logger.info(f"Model saved to {path.as_posix()}")
         torch.save({"volume": trainer.volume.state_dict()}, path)
