@@ -1,0 +1,11 @@
+data: ???
+volume: ???
+renderer: ???
+trainer: ???
+
+defaults:
+    - data: MISSING # forced to provide
+    - volume: standard
+    - renderer: standard
+    - trainer: standard
+    - _self_

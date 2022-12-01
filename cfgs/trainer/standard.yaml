@@ -1,3 +1,4 @@
+_partial_: true
 _target_: torchngp.training.NeRFTrainer
 volume: ${volume}
 train_camera: ${data.cameras.train_camera}
