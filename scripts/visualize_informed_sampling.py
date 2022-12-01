@@ -1,7 +1,7 @@
 import torch
 import matplotlib.pyplot as plt
 
-from torchngp import sampling
+from torchngp import functional
 
 
 def compute_weights(ts: torch.Tensor):
@@ -19,13 +19,13 @@ def main():
     tfar = torch.tensor([[10.0]]).expand(B, 1)
 
     # Uninformed samples and weights
-    ts = sampling.sample_ray_step_stratified(tnear, tfar, Ts)
+    ts = functional.sample_ray_step_stratified(tnear, tfar, Ts)
     # Lets assume weights peak around 5.0
 
     weights = compute_weights(ts)
 
     # Informed samples
-    ts_new = sampling.sample_ray_step_informed(
+    ts_new = functional.sample_ray_step_informed(
         ts, tnear, tfar, weights=weights, n_samples=Ti
     )
     weights_new = compute_weights(ts_new)

@@ -2,7 +2,7 @@ import torch
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
-from torchngp import radiance, geometric, sampling
+from torchngp import radiance, geometric, sampling, functional
 
 
 def plot_density_scale(ds, show=True):
@@ -16,8 +16,8 @@ def plot_density_scale(ds, show=True):
     tnear = torch.tensor([[1.0]])
     tfar = torch.tensor([[2.0]])
 
-    ts = sampling.sample_ray_step_stratified(tnear, tfar, 50)
-    xyz = geometric.evaluate_ray(o, d, ts)  # (T,B,3)
+    ts = functional.sample_ray_step_stratified(tnear, tfar, 50)
+    xyz = functional.evaluate_ray(o, d, ts)  # (T,B,3)
 
     color = torch.tensor(mpl.colormaps["jet"](xyz[..., 0].numpy()))  # (T,B,4)
     density = (
@@ -27,9 +27,9 @@ def plot_density_scale(ds, show=True):
     density[mask] = 0.0
     density[~mask] *= ds
 
-    ts_weights = radiance.integrate_timesteps(density, ts, dnorm, tfinal=tfar + 1e-2)
-    out_color = radiance.color_map(color[..., :3], ts_weights, per_timestep=True)
-    out_transm = 1.0 - radiance.alpha_map(ts_weights, per_timestep=True)
+    ts_weights = functional.integrate_timesteps(density, ts, dnorm, tfinal=tfar + 1e-2)
+    out_color = functional.color_map(color[..., :3], ts_weights, per_timestep=True)
+    out_transm = 1.0 - functional.alpha_map(ts_weights, per_timestep=True)
 
     fig, ax = plt.subplots(figsize=(8, 8))
     fig.text(0.35, 0.9, f"density scale factor {ds:.1f}")
