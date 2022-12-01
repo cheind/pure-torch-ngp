@@ -113,7 +113,7 @@ def cam_from_json(path: str, slice: str = None) -> geometric.MultiViewCamera:
         tvec = eval("tvec[" + slice + "]")
         image_paths = eval("image_paths[" + slice + "]")
 
-    _logger.debug(
+    _logger.info(
         f"Imported {len(image_paths)} poses from '{str(path)}', skipped"
         f" {n_skipped} poses and fixed {n_fixed} poses."
     )

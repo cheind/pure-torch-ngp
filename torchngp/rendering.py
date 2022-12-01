@@ -15,10 +15,10 @@ class RadianceRenderer(torch.nn.Module):
     def __init__(
         self,
         tsampler: sampling.RayStepSampler = None,
-        ray_extension: float = 2.0,
+        ray_ext_factor: float = 10.0,
     ) -> None:
         super().__init__()
-        self.ray_extension = ray_extension
+        self.ray_ext_factor = ray_ext_factor
         self.tsampler = tsampler or sampling.StratifiedRayStepSampler(256)
 
     def trace_uv(
@@ -68,7 +68,7 @@ class RadianceRenderer(torch.nn.Module):
             ts_density,
             ts,
             active_rays.dnorm,
-            tfinal=active_rays.tfar + self.ray_extension,
+            tfinal=active_rays.tfar * self.ray_ext_factor,
         )
 
         # Compute result maps
