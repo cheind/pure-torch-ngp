@@ -112,6 +112,49 @@ def so3_exp(r: torch.Tensor) -> torch.Tensor:
     return R
 
 
+def spherical_pose(
+    theta: torch.Tensor,
+    phi: torch.Tensor,
+    radius: torch.Tensor,
+) -> torch.Tensor:
+    """Returns a camera-ready poses from spherical coordinates pointing towards on origin"""
+    N = theta.shape[0]
+
+    def _eye_4x4():
+        t = (
+            torch.eye(4, dtype=theta.dtype, device=theta.device)
+            .unsqueeze(0)
+            .expand(N, 4, 4)
+            .contiguous()
+        )
+        return t
+
+    def _to_4x4(m3x3):
+        t = _eye_4x4()
+        t[:, :3, :3] = m3x3
+        return t
+
+    c = torch.tensor(
+        [[1.0, 0.0, 0, 0], [0.0, -1.0, 0.0, 0], [0, 0.0, -1.0, 0], [0, 0, 0, 1]]
+    ).unsqueeze(0)
+    trans = _eye_4x4()
+    trans[:, 2, 3] = radius
+    rx = _to_4x4(
+        rotation_matrix(
+            torch.tensor([1.0, 0.0, 0.0]).unsqueeze(0).expand(N, -1),
+            phi,
+        )
+    )
+    rz = _to_4x4(
+        rotation_matrix(
+            torch.tensor([0.0, 0.0, 1.0]).unsqueeze(0).expand(N, -1),
+            theta,
+        )
+    )
+
+    return rz @ rx @ trans @ c
+
+
 __all__ = [
     "hom",
     "dehom",
@@ -119,4 +162,5 @@ __all__ = [
     "rotation_vector",
     "so3_log",
     "so3_exp",
+    "spherical_pose",
 ]

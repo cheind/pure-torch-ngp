@@ -1,3 +1,6 @@
+hydra:
+    run:
+        dir: outputs/${now:%Y-%m-%d_%H-%M-%S}-${hydra.job.name}
 data: ???
 volume:
     _target_: torchngp.volumes.Volume
@@ -70,3 +73,9 @@ trainer:
           n_rays_interval_log2: 15
         - _target_: torchngp.training.ValidationCallback
           n_rays_interval_log2: 20
+        - _target_: torchngp.training.ExportCallback
+          n_rays_interval_log2: 22
+
+defaults:
+    - data: MISSING
+    - _self_

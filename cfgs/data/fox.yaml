@@ -1,3 +1,13 @@
-_target_: torchngp.io.load_scene_from_json
-path: data/lego/transforms_train.json
-pose_to_cv: true
+name: fox
+aabb:
+    _target_: torchngp.io.aabb_from_json
+    path: data/fox/transforms.json
+cameras:
+    train_camera:
+        _target_: torchngp.io.cam_from_json
+        path: data/fox/transforms.json
+        slice: ":-3"
+    val_camera:
+        _target_: torchngp.io.cam_from_json
+        path: data/fox/transforms.json
+        slice: "-3:"

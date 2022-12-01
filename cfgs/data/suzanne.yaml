@@ -1,4 +1,4 @@
-name: lego
+name: suzanne
 aabb:
     _target_: torchngp.io.aabb_from_json
     path: data/suzanne/transforms.json

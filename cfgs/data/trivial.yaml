@@ -1,3 +1,0 @@
-_target_: torchngp.io.load_scene_from_json
-path: data/trivial/transforms.json
-pose_to_cv: true

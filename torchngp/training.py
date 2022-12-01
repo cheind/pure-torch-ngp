@@ -122,7 +122,7 @@ def render_images(
     tsampler: sampling.RayStepSampler,
     use_amp: bool,
     n_samples_per_view: int,
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> torch.Tensor:
     with torch.cuda.amp.autocast(enabled=use_amp):
         maps = renderer.trace_maps(
             vol, cam, tsampler=tsampler, n_samples_per_cam=n_samples_per_view
@@ -393,21 +393,18 @@ class ValidationCallback(IntervalTrainingsCallback):
         # pbar_postfix["val_loss"] = val_loss.item()
 
 
-# class ExportCallback(IntervalTrainingsCallback):
-#     def __init__(
-#         self,
-#         n_rays_interval_log2: int,
-#         min_loss: float = 5e-3,
-#     ) -> None:
-#         super().__init__(n_rays_interval_log2, callback=self)
-#         self.min_loss = min_loss
+class ExportCallback(IntervalTrainingsCallback):
+    def __init__(
+        self,
+        n_rays_interval_log2: int,
+        min_loss: float = 5e-3,
+    ) -> None:
+        super().__init__(n_rays_interval_log2, callback=self)
+        self.min_loss = min_loss
 
-#     @torch.no_grad()
-#     def __call__(self, trainer: NeRFTrainer):
-#         if trainer.current_loss > self.min_loss:
-#             return
-#         path = trainer.output_dir / f"nerf_step={trainer.global_step}.png"
-#         torch.save()
-
-#         trainer.scene
-#         trainer.volume
+    @torch.no_grad()
+    def __call__(self, trainer: NeRFTrainer):
+        if trainer.current_loss > self.min_loss:
+            return
+        path = trainer.output_dir / f"nerf_step={trainer.global_step}.pth"
+        torch.save({"volume": trainer.volume.state_dict()}, path)
