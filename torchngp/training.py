@@ -163,6 +163,7 @@ class OptimizerParams:
 
 @dataclasses.dataclass
 class NeRFTrainer:
+    resolved_cfg: str
     volume: volumes.Volume
     train_camera: geometric.MultiViewCamera
     val_camera: Optional[geometric.MultiViewCamera] = None
@@ -400,9 +401,7 @@ class ValidationCallback(IntervalTrainingsCallback):
 
 class ExportCallback(IntervalTrainingsCallback):
     def __init__(
-        self,
-        n_rays_interval_log2: int,
-        min_loss: float = 5e-3,
+        self, n_rays_interval_log2: int, min_loss: float = 5e-3, config: str = None
     ) -> None:
         super().__init__(n_rays_interval_log2, callback=self)
         self.min_loss = min_loss
@@ -413,4 +412,10 @@ class ExportCallback(IntervalTrainingsCallback):
             return
         path = trainer.output_dir / f"nerf_step_{trainer.global_step}.pth"
         _logger.info(f"Model saved to {path.as_posix()}")
-        torch.save({"volume": trainer.volume.state_dict()}, path)
+        torch.save(
+            {
+                "volume": trainer.volume.state_dict(),
+                "config": trainer.resolved_cfg,
+            },
+            path,
+        )
