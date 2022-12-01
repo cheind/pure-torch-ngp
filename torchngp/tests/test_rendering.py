@@ -26,7 +26,7 @@ def test_render_volume_stratified():
         tfar=10.0,
     )
 
-    rdr = rendering.RadianceRenderer(ray_extension=1)
+    rdr = rendering.RadianceRenderer(ray_ext_factor=1)
     which_maps = {"color", "alpha"}
     torch.random.manual_seed(123)
     tsampler = sampling.StratifiedRayStepSampler(n_samples=128)
