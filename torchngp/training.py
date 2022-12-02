@@ -377,12 +377,9 @@ class ValidationCallback(IntervalTrainingsCallback):
                 # TODO how does alpha pixel influence this result?
                 psnr, _ = functional.peak_signal_noise_ratio(rgba, val_rgba, 1.0)
                 trainer.pbar_postfix["psnr[dB]"] = psnr.mean().item()
+                _logger.info(f"psnr[dB]={psnr.mean().item():.2f}")
             else:
                 _logger.warn("PSNR computation failed: images not found.")
-
-        # TODO:this is a different loss than in training
-        # val_loss = F.mse_loss(val_rgba[:, :3], val_scene.images.to(dev)[:, :3])
-        # pbar_postfix["val_loss"] = val_loss.item()
 
 
 class ExportCallback(IntervalTrainingsCallback):
