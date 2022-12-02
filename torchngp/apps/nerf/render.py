@@ -55,7 +55,9 @@ RenderTaskConf = make_config(
         size=(512, 512),
         poses="${poses}",
     ),
-    renderer=rendering.RadianceRendererConf(),
+    renderer=rendering.RadianceRendererConf(
+        tsampler=sampling.StratifiedRayStepSamplerConf(512)
+    ),
 )
 cs = ConfigStore.instance()
 cs.store(name="render_task", node=RenderTaskConf)
