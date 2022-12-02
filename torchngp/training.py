@@ -23,6 +23,7 @@ from . import (
     plotting,
     radiance,
     config,
+    functional,
 )
 
 _logger = logging.getLogger("torchngp")
@@ -130,17 +131,6 @@ def render_images(
         )
         pred_rgba = torch.cat((maps["color"], maps["alpha"]), -1).permute(0, 3, 1, 2)
     return pred_rgba
-
-
-def save_image(fname: Union[str, Path], rgba: torch.Tensor):
-    grid_img = (
-        (plotting.make_image_grid(rgba, checkerboard_bg=False, scale=1.0) * 255)
-        .to(torch.uint8)
-        .permute(1, 2, 0)
-        .cpu()
-        .numpy()
-    )
-    Image.fromarray(grid_img, mode="RGBA").save(fname)
 
 
 class TrainingsCallback(Protocol):
@@ -379,7 +369,7 @@ class ValidationCallback(IntervalTrainingsCallback):
         if trainer.current_loss > self.min_loss:
             return
         _logger.info(
-            f"Validation pass after {trainer.global_step*trainer.n_rays_batch} rays"
+            f"Validation pass after {trainer.global_step*trainer.n_rays_batch:,} rays"
         )
         val_rgba = render_images(
             trainer.volume,
@@ -391,8 +381,10 @@ class ValidationCallback(IntervalTrainingsCallback):
                 trainer.n_rays_minibatch / trainer.val_camera.n_views
             ),
         )
-        save_image(
-            trainer.output_dir / f"img_val_step_{trainer.global_step}.png", val_rgba
+        functional.save_image(
+            val_rgba,
+            trainer.output_dir / f"img_val_step_{trainer.global_step}.png",
+            individual=False,
         )
         # TODO:this is a different loss than in training
         # val_loss = F.mse_loss(val_rgba[:, :3], val_scene.images.to(dev)[:, :3])

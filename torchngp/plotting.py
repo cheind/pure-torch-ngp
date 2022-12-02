@@ -49,6 +49,25 @@ def plot_box(aabb: torch.Tensor, ax=None, **kwargs):
     return ax
 
 
+def plot_world(aabb: torch.Tensor, cam: geometric.MultiViewCamera, ax=None):
+    axmin, axmax = cam.tvec.min().item(), cam.tvec.max().item()
+    axmin = min(axmin, aabb.min().item())
+    axmax = max(axmax, aabb.max().item())
+
+    if ax is None:
+        ax = pu.make_3d_axis(unit="m", ax_s=1.0)
+
+    plot_box(aabb, ax)
+    plot_camera(cam, ax)
+    ax.set_xlim(axmin, axmax)
+    ax.set_ylim(axmin, axmax)
+    ax.set_zlim(axmin, axmax)
+    limits = np.array([getattr(ax, f"get_{axis}lim")() for axis in "xyz"])
+    ax.set_box_aspect(np.ptp(limits, axis=1))
+    ax.set_aspect("equal")
+    return ax
+
+
 def _checkerboard(shape: tuple[int, ...], k: int = None) -> torch.Tensor:
     """Returns a checkerboar background.
     See https://stackoverflow.com/questions/72874737

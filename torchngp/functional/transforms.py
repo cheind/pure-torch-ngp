@@ -1,3 +1,4 @@
+from typing import Optional
 import torch
 
 
@@ -116,8 +117,9 @@ def spherical_pose(
     theta: torch.Tensor,
     phi: torch.Tensor,
     radius: torch.Tensor,
+    center: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
-    """Returns a camera-ready poses from spherical coordinates pointing towards on origin"""
+    """Returns a camera-ready poses from spherical coordinates."""
     N = theta.shape[0]
 
     def _eye_4x4():
@@ -152,7 +154,11 @@ def spherical_pose(
         )
     )
 
-    return rz @ rx @ trans @ c
+    tc = _eye_4x4()
+    if center is not None:
+        tc[:, :3, 3] = center
+
+    return tc @ rz @ rx @ trans @ c
 
 
 __all__ = [

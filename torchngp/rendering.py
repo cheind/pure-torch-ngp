@@ -159,5 +159,5 @@ class RadianceRenderer(torch.nn.Module):
 
 RadianceRendererConf = config.build_conf(
     RadianceRenderer,
-    tsampler=sampling.StratifiedRayStepSamplerConf(128),
+    tsampler=sampling.StratifiedRayStepSamplerConf(256),
 )
