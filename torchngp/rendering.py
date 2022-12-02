@@ -29,6 +29,19 @@ class RadianceRenderer(torch.nn.Module):
         tsampler: Optional[sampling.RayStepSampler] = None,
         which_maps: Optional[set[MAPKEY]] = None,
     ) -> dict[MAPKEY, Optional[torch.Tensor]]:
+        """Render various radiance properties for specific pixel coordinates
+
+        Params:
+            vol: volume holding radiance information
+            cam: camera and pose information to be rendered
+            uv: (N,...,2) uv coordinates for N views to render
+            tsampler: optional ray step sampling strategy to be used
+            which_maps: set of map names to be rendered
+
+        Returns:
+            maps: dictionary from map name to (N,...,C) tensor with C depending
+                on the map type.
+        """
         # if ray_td is None:
         #     ray_td = torch.norm(self.aabb[1] - self.aabb[0]) / 1024
         if which_maps is None:
@@ -85,16 +98,29 @@ class RadianceRenderer(torch.nn.Module):
         self,
         vol: volumes.Volume,
         cam: geometric.MultiViewCamera,
-        tsampler: Optional[sampling.RayStepSampler],
+        tsampler: Optional[sampling.RayStepSampler] = None,
         which_maps: Optional[set[MAPKEY]] = None,
-        n_samples_per_cam: Optional[int] = None,
+        n_rays_parallel: int = 2**13,
     ) -> dict[MAPKEY, Optional[torch.Tensor]]:
+        """Densly render various radiance properties.
+
+        Params:
+            vol: volume holding radiance information
+            cam: camera and pose information to be rendered
+            tsampler: optional ray step sampling strategy to be used
+            which_maps: set of maps to be rendered
+            n_rays_parallel: maximum number of parallel rays to process with C depending
+                on the map type.
+
+        Returns:
+            maps: dictionary from map name to (N,H,W,C) tensor
+        """
         if which_maps is None:
             which_maps = {"color", "alpha"}
         tsampler = tsampler or self.tsampler
 
         gen = sampling.generate_sequential_uv_samples(
-            camera=cam, image=None, n_samples_per_cam=n_samples_per_cam
+            camera=cam, image=None, n_samples_per_cam=n_rays_parallel // cam.n_views
         )
 
         parts = []
@@ -155,6 +181,42 @@ class RadianceRenderer(torch.nn.Module):
         out_color[mask] = color.to(out_color.dtype)
         out_density[mask] = density.to(density.dtype)
         return out_color, out_density
+
+    def trace_rgba(
+        self,
+        vol: volumes.Volume,
+        cam: geometric.MultiViewCamera,
+        tsampler: Optional[sampling.RayStepSampler] = None,
+        use_amp: bool = True,
+        n_rays_parallel: int = 2**13,
+    ) -> torch.Tensor:
+        """Render RGBA images.
+
+        This is a high-level routine best used in validation/testing. See
+        `trace_maps` for more control.
+
+        Params:
+            vol: volume holding radiance information
+            cam: camera and pose information to be rendered
+            tsampler: optional ray step sampling strategy to be used
+            use_amp: enable/disample amp
+            n_rays_parallel: maximum number of parallel rays to process
+
+        Returns:
+            rgba: (N,4,H,W) batch of images in [0,1] range
+        """
+        with torch.cuda.amp.autocast(enabled=use_amp):
+            maps = self.trace_maps(
+                vol,
+                cam,
+                tsampler=tsampler,
+                which_maps={"color", "alpha"},
+                n_rays_parallel=n_rays_parallel,
+            )
+            pred_rgba = torch.cat((maps["color"], maps["alpha"]), -1).permute(
+                0, 3, 1, 2
+            )
+        return pred_rgba
 
 
 RadianceRendererConf = config.build_conf(
