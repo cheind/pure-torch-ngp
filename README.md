@@ -30,8 +30,6 @@ Currently, the tasks of learning Neural Radiance Fields and approximating Gigapi
 
 ## Installation (using pinned dependencies)
 
-This requires Python 3.9.
-
 Create a virtual env, clone the repo and install the dependencies
 
 ```shell
