@@ -14,8 +14,20 @@ def checkerboard_image(
     dtype: torch.dtype = None,
     device: torch.device = None,
 ) -> torch.Tensor:
-    """Returns a checkerboard background image.
-    See https://stackoverflow.com/questions/72874737
+    """Generates a checkerboard image.
+
+    Useful as background for transparent images.
+    Adapted from https://stackoverflow.com/questions/72874737
+
+    Params:
+        shape: (N,C,H,W) shape to generate
+        k: size of square
+        dtype: data type
+        device: compute device
+
+    Returns:
+        rgba: image filled with checkerboard pattern
+
     """
     assert shape[1] in [1, 3, 4]
     # nearest h,w multiple of k
@@ -57,11 +69,13 @@ def constant_image(
     dtype: torch.dtype = None,
     device: torch.device = None,
 ) -> torch.Tensor:
+    """Returns an image of constant channel values."""
     c = torch.as_tensor(c, dtype=dtype, device=device)
     return c.view(1, -1, 1, 1).expand(*shape)
 
 
-def compose_image_alpha(rgba: torch.Tensor, rgb: torch.Tensor):
+def compose_image_alpha(rgba: torch.Tensor, rgb: torch.Tensor) -> torch.Tensor:
+    """Performs alpha composition on inputs"""
     alpha = rgba[:, 3:4]
     c = rgba[:, :3] * alpha + (1 - alpha) * rgb
     return torch.cat((c, c.new_ones(rgba.shape[0], 1, rgba.shape[2], rgba.shape[3])), 1)
@@ -70,6 +84,7 @@ def compose_image_alpha(rgba: torch.Tensor, rgb: torch.Tensor):
 def scale_image(
     rgba: torch.Tensor, scale: float, mode: str = "bilinear"
 ) -> torch.Tensor:
+    """Scale image by factor."""
     return F.interpolate(
         rgba,
         scale_factor=scale,
@@ -80,10 +95,12 @@ def scale_image(
 
 
 def create_image_grid(rgba: torch.Tensor, padding: int = 2) -> torch.Tensor:
+    """Convert batch images to grid"""
     return make_grid(rgba, padding=padding).unsqueeze(0)
 
 
 def save_image(rgba: torch.Tensor, outpath: str, individual: bool = False):
+    """Save images."""
     if not individual:
         rgba = create_image_grid(rgba, padding=0)
     rgba = (rgba * 255).to(torch.uint8).permute(0, 2, 3, 1).cpu().numpy()
