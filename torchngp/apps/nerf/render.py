@@ -31,7 +31,7 @@ logging.getLogger("PIL").setLevel(logging.WARNING)
 class OutputOptions:
     dir: str = "${hydra:runtime.output_dir}"
     render_setup: bool = True
-    background_color: Optional[tuple[float, float, float, float]] = None
+    transparent: bool = True
     grid: bool = False
     fname: str = "image_{idx:03d}.png"
 
@@ -84,13 +84,17 @@ def render_task(cfg: DictConfig):
     rgba = training.render_images(
         vol, rnd, cam, None, use_amp=True, n_samples_per_view=cam.size[0]
     )
+    if not cfg.output.transparent:
+        rgba = functional.compose_image_alpha(rgba, 1.0)
+
     functional.save_image(
         rgba,
         str(Path(cfg.output.dir) / cfg.output.fname),
         individual=not cfg.output.grid,
     )
 
-    # python -m torchngp.apps.nerf.render +ckpt=/home/cheind@profactor.local/dev/torch-instant-ngp/outputs/2022-12-01/15-48-06/nerf_step_6143.pth poses.n_poses=10
+    # python -m torchngp.apps.nerf.render +ckpt=/home/cheind@profactor.local/dev/torch-instant-ngp/outputs/2022-12-01/15-48-06/nerf_step_6143.pth poses.n_poses=10 output.grid=False output.transparent=False
+    # ffmpeg -i /home/cheind@profactor.local/dev/torch-instant-ngp/outputs/2022-12-02/11-44-35/image_%03d.png -vf "fps=10,scale=320:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 10 output.gif
 
 
 if __name__ == "__main__":
