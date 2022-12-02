@@ -93,6 +93,8 @@ def cam_from_json(path: str, slice: str = None) -> geometric.MultiViewCamera:
     else:
         fl_x, fl_y = data["fl_x"], data["fl_y"]
     if "cx" not in data or "cy" not in data:
+        # TODO: why does W * 0.5 yield a higher PSNR?
+        # especially on blender datasets.
         cx = (W + 1) * 0.5
         cy = (H + 1) * 0.5
     else:
