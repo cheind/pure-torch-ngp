@@ -3,9 +3,14 @@ import hydra
 import numpy as np
 import io
 import torch
+import dataclasses
+import matplotlib.pyplot as plt
+from PIL import Image
+from typing import Optional
+
 from pathlib import Path
 from hydra.core.config_store import ConfigStore
-from hydra_zen import instantiate, make_config, load_from_yaml, ZenField as zf
+from hydra_zen import instantiate, make_config, load_from_yaml, ZenField as zf, builds
 from omegaconf import MISSING, DictConfig, OmegaConf
 
 from torchngp import (
@@ -15,28 +20,42 @@ from torchngp import (
     sampling,
     geometric,
     plotting,
+    functional,
 )
 
 _logger = logging.getLogger("torchngp")
 logging.getLogger("PIL").setLevel(logging.WARNING)
 
 
+@dataclasses.dataclass
+class OutputOptions:
+    dir: str = "${hydra:runtime.output_dir}"
+    render_setup: bool = True
+    background_color: Optional[tuple[float, float, float, float]] = None
+    grid: bool = False
+    fname: str = "image_{idx:03d}.png"
+
+
+OutputOptionsConf = builds(OutputOptions, populate_full_signature=True)
+
 RenderTaskConf = make_config(
     ckpt=zf(str, MISSING),
-    output_dir="${hydra:runtime.output_dir}",
+    output=OutputOptionsConf(),
+    poses=geometric.SphericalPosesConf(
+        20,
+        theta_range=(0, 2 * np.pi),
+        phi_range=(70 / 180 * np.pi, 70 / 180 * np.pi),
+        radius_range=(6.0, 6.0),
+        center=(0.0, 0.0, 0.0),
+        inclusive=False,
+    ),
     camera=geometric.MultiViewCameraConf(
         focal_length=(1000, 1000),
         principal_point=(255.5, 255.5),
         size=(512, 512),
-        poses=geometric.SphericalPosesConf(
-            20,
-            theta_range=(0, 2 * np.pi),
-            phi_range=(70 / 180 * np.pi, 70 / 180 * np.pi),
-            radius_range=(6.0, 6.0),
-            center=(0.0, 0.0, 0.0),
-            inclusive=False,
-        ),
+        poses="${poses}",
     ),
+    renderer=rendering.RadianceRendererConf(),
 )
 cs = ConfigStore.instance()
 cs.store(name="render_task", node=RenderTaskConf)
@@ -55,24 +74,23 @@ def render_task(cfg: DictConfig):
     vol: volumes.Volume = instantiate(train_cfg.volume)
     vol.load_state_dict(ckpt_data["volume"])
     vol.to(dev).eval()
-    rnd = rendering.RadianceRenderer(
-        tsampler=sampling.StratifiedRayStepSampler(n_samples=512)
-    )
-    cam: geometric.MultiViewCamera = instantiate(cfg.camera).cuda()
+    rnd = instantiate(cfg.renderer).to(dev)
+    cam: geometric.MultiViewCamera = instantiate(cfg.camera).to(dev)
 
     ax = plotting.plot_world(vol.aabb, cam)
+    # plt.show()
 
-    import matplotlib.pyplot as plt
-
-    plt.show()
-
+    _logger.info(f"Rendering, saving results to {cfg.output.dir}")
     rgba = training.render_images(
         vol, rnd, cam, None, use_amp=True, n_samples_per_view=cam.size[0]
     )
-    _logger.info(f"Saving results to {cfg.output_dir}")
-    training.save_image(Path(cfg.output_dir) / "render.png", rgba)
+    functional.save_image(
+        rgba,
+        str(Path(cfg.output.dir) / cfg.output.fname),
+        individual=not cfg.output.grid,
+    )
 
-    # python -m torchngp.apps.nerf.render +ckpt=/home/cheind@profactor.local/dev/torch-instant-ngp/outputs/2022-12-01_14-28-40-run/nerf_step_9215.pth
+    # python -m torchngp.apps.nerf.render +ckpt=/home/cheind@profactor.local/dev/torch-instant-ngp/outputs/2022-12-01/15-48-06/nerf_step_6143.pth poses.n_poses=10
 
 
 if __name__ == "__main__":
