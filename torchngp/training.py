@@ -20,7 +20,6 @@ from . import (
     rendering,
     sampling,
     volumes,
-    plotting,
     radiance,
     config,
     functional,
@@ -346,10 +345,12 @@ class ValidationCallback(IntervalTrainingsCallback):
         n_rays_interval_log2: int,
         n_rays_parallel_log2: int,
         min_loss: float = 5e-3,
+        with_psnr: bool = True,
     ) -> None:
         super().__init__(n_rays_interval_log2, callback=self)
         self.min_loss = min_loss
         self.n_rays_parallel = 2**n_rays_parallel_log2
+        self.with_psnr = with_psnr
 
     @torch.no_grad()
     def __call__(self, trainer: NeRFTrainer):
@@ -358,17 +359,27 @@ class ValidationCallback(IntervalTrainingsCallback):
         _logger.info(
             f"Validation pass after {trainer.global_step*trainer.n_rays_batch:,} rays"
         )
-        val_rgba = trainer.val_renderer.trace_rgba(
+        rgba = trainer.val_renderer.trace_rgba(
             trainer.volume,
             trainer.val_camera,
             use_amp=trainer.use_amp,
             n_rays_parallel=self.n_rays_parallel,
         )
         functional.save_image(
-            val_rgba,
+            rgba,
             trainer.output_dir / f"img_val_step_{trainer.global_step}.png",
             individual=False,
         )
+
+        if self.with_psnr:
+            val_rgba = trainer.val_camera.load_images()
+            if val_rgba.numel() > 0:
+                # TODO how does alpha pixel influence this result?
+                psnr, _ = functional.peak_signal_noise_ratio(rgba, val_rgba, 1.0)
+                trainer.pbar_postfix["psnr[dB]"] = psnr.mean().item()
+            else:
+                _logger.warn("PSNR computation failed: images not found.")
+
         # TODO:this is a different loss than in training
         # val_loss = F.mse_loss(val_rgba[:, :3], val_scene.images.to(dev)[:, :3])
         # pbar_postfix["val_loss"] = val_loss.item()

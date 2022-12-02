@@ -34,5 +34,6 @@ callbacks:
     - _target_: torchngp.training.ValidationCallback
       n_rays_interval_log2: 21
       n_rays_parallel_log2: 14
+      with_psnr: true
     - _target_: torchngp.training.ExportCallback
       n_rays_interval_log2: 22
