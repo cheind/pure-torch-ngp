@@ -34,17 +34,17 @@ class MultiViewDataset(torch.utils.data.IterableDataset):
         self,
         camera: geometric.MultiViewCamera,
         images: torch.Tensor,
-        n_rays_per_view: Optional[int] = None,
+        n_samples_per_view: Optional[int] = None,
         random: bool = True,
         subpixel: bool = True,
     ):
         self.camera = camera
         self.images = images
         self.n_pixels_per_cam = camera.size.prod().item()
-        if n_rays_per_view is None:
+        if n_samples_per_view is None:
             # width of image per mini-batch
-            n_rays_per_view = camera.size[0].item()  # type: ignore
-        self.n_rays_per_view = n_rays_per_view
+            n_samples_per_view = camera.size[0].item()  # type: ignore
+        self.n_samples_per_view = n_samples_per_view
         self.random = random
         self.subpixel = subpixel if random else False
 
@@ -55,7 +55,7 @@ class MultiViewDataset(torch.utils.data.IterableDataset):
                 sampling.generate_random_uv_samples(
                     camera=self.camera,
                     image=self.images,
-                    n_samples_per_cam=self.n_rays_per_view,
+                    n_samples_per_cam=self.n_samples_per_view,
                     subpixel=self.subpixel,
                 ),
                 int(math.ceil(len(self) / n_worker)),
@@ -64,13 +64,13 @@ class MultiViewDataset(torch.utils.data.IterableDataset):
             return sampling.generate_sequential_uv_samples(
                 camera=self.camera,
                 image=self.images,
-                n_samples_per_cam=self.n_rays_per_view,
+                n_samples_per_cam=self.n_samples_per_view,
                 n_passes=1,
             )
 
     def __len__(self) -> int:
         # Number of mini-batches required to match with number of total pixels
-        return int(math.ceil(self.n_pixels_per_cam / self.n_rays_per_view))
+        return int(math.ceil(self.n_pixels_per_cam / self.n_samples_per_view))
 
 
 def create_fwd_bwd_closure(
@@ -116,23 +116,6 @@ def create_fwd_bwd_closure(
     return run_fwd_bwd
 
 
-@torch.no_grad()
-def render_images(
-    vol: volumes.Volume,
-    renderer: rendering.RadianceRenderer,
-    cam: geometric.MultiViewCamera,
-    tsampler: sampling.RayStepSampler,
-    use_amp: bool,
-    n_samples_per_view: int,
-) -> torch.Tensor:
-    with torch.cuda.amp.autocast(enabled=use_amp):
-        maps = renderer.trace_maps(
-            vol, cam, tsampler=tsampler, n_samples_per_cam=n_samples_per_view
-        )
-        pred_rgba = torch.cat((maps["color"], maps["alpha"]), -1).permute(0, 3, 1, 2)
-    return pred_rgba
-
-
 class TrainingsCallback(Protocol):
     def after_training_step(self, trainer: "NeRFTrainer"):
         pass
@@ -162,7 +145,7 @@ class NeRFTrainer:
     output_dir: Path = Path("./tmp")
     train_max_time: float = 60 * 10
     n_rays_batch_log2: int = 14
-    n_rays_minibatch_log2: int = 14
+    n_rays_parallel_log2: int = 14
     n_worker: int = 4
     use_amp: bool = True
     random_uv: bool = True
@@ -189,16 +172,13 @@ class NeRFTrainer:
             self.val_renderer = self.train_renderer
         self.output_dir = Path(self.output_dir)
         self.n_rays_batch = 2**self.n_rays_batch_log2
-        self.n_rays_minibatch = 2**self.n_rays_minibatch_log2
-        self.n_acc_steps = self.n_rays_batch // self.n_rays_minibatch
-        self.n_rays_per_view = int(
-            self.n_rays_minibatch / self.train_camera.n_views / self.n_worker
-        )
+        self.n_rays_parallel = 2**self.n_rays_parallel_log2
+        self.n_acc_steps = self.n_rays_batch // self.n_rays_parallel
         _logger.info(f"Using device {self.dev}")
         _logger.info(f"Output directory set to {self.output_dir.as_posix()}")
         _logger.info(
             f"Processing {self.n_rays_batch} rays per optimizer step with a maximum of"
-            f" {self.n_rays_minibatch} parallel rays."
+            f" {self.n_rays_parallel} parallel rays."
         )
 
     def train(self):
@@ -207,9 +187,7 @@ class NeRFTrainer:
         self._move_mods_to_device()
 
         # Train dataloader
-        train_dl = self._create_train_dataloader(
-            self.train_camera, self.n_rays_per_view, self.n_worker
-        )
+        train_dl = self._create_train_dataloader(self.train_camera, self.n_worker)
 
         # Create optimizers, schedulers
         opt, sched = self._create_optimizers()
@@ -223,7 +201,7 @@ class NeRFTrainer:
         )
 
         # Enter main loop
-        pbar_postfix = {"loss": 0.0}
+        self.pbar_postfix = {"loss": 0.0}
         self.global_step = 0
         self.current_loss = 0.0
         loss_acc = 0.0
@@ -249,8 +227,8 @@ class NeRFTrainer:
                         sched.step(loss)
                         opt.zero_grad(set_to_none=True)
                         self.current_loss = loss_acc
-                        pbar_postfix["loss"] = self.current_loss
-                        pbar_postfix["lr"] = sched._last_lr[0]  # type: ignore
+                        self.pbar_postfix["loss"] = self.current_loss
+                        self.pbar_postfix["lr"] = sched._last_lr[0]  # type: ignore
                         loss_acc = 0.0
 
                     t_callbacks_start = time.time()
@@ -258,23 +236,26 @@ class NeRFTrainer:
                         cb.after_training_step(self)
                     t_callbacks_elapsed += time.time() - t_callbacks_start
 
-                    pbar.set_postfix(**pbar_postfix, refresh=False)
+                    pbar.set_postfix(**self.pbar_postfix, refresh=False)
                     pbar.update(1)
                     self.global_step += 1
 
     def _create_train_dataloader(
         self,
         train_camera: geometric.MultiViewCamera,
-        n_rays_per_view: int,
         n_worker: int,
     ):
         if not self.preload:
             train_camera = copy.deepcopy(train_camera).cpu()
 
+        n_samples_per_view = int(
+            self.n_rays_parallel / self.train_camera.n_views / self.n_worker
+        )
+
         train_ds = MultiViewDataset(
             camera=train_camera,
             images=train_camera.load_images(),
-            n_rays_per_view=n_rays_per_view,
+            n_samples_per_view=n_samples_per_view,
             random=self.random_uv,
             subpixel=self.subpixel_uv,
         )
@@ -360,9 +341,15 @@ class UpdateSpatialFilterCallback(IntervalTrainingsCallback):
 
 
 class ValidationCallback(IntervalTrainingsCallback):
-    def __init__(self, n_rays_interval_log2: int, min_loss: float = 5e-3) -> None:
+    def __init__(
+        self,
+        n_rays_interval_log2: int,
+        n_rays_parallel_log2: int,
+        min_loss: float = 5e-3,
+    ) -> None:
         super().__init__(n_rays_interval_log2, callback=self)
         self.min_loss = min_loss
+        self.n_rays_parallel = 2**n_rays_parallel_log2
 
     @torch.no_grad()
     def __call__(self, trainer: NeRFTrainer):
@@ -371,15 +358,11 @@ class ValidationCallback(IntervalTrainingsCallback):
         _logger.info(
             f"Validation pass after {trainer.global_step*trainer.n_rays_batch:,} rays"
         )
-        val_rgba = render_images(
+        val_rgba = trainer.val_renderer.trace_rgba(
             trainer.volume,
-            trainer.val_renderer,
             trainer.val_camera,
-            None,
-            trainer.use_amp,
-            n_samples_per_view=int(
-                trainer.n_rays_minibatch / trainer.val_camera.n_views
-            ),
+            use_amp=trainer.use_amp,
+            n_rays_parallel=self.n_rays_parallel,
         )
         functional.save_image(
             val_rgba,
