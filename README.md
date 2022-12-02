@@ -59,14 +59,18 @@ pip install -r requirements.in
 python -m torchngp.apps.nerf.run +data=suzanne
 ```
 
-`Hydra` is used for configuration management. The configuration files are stored in `cfgs/`. A folder per run in created in `outputs/` to store intermediate results and model weights.
+[Hydra](https://hydra.cc/docs/intro/) is used for configuration management. The configuration files are stored in `cfgs/`. A folder per run in created in `outputs/` to store intermediate results and model weights.
 
 ## Render
 
 To render images from a spherical coordinate trajectory execute
 
-```
-python -m torchngp.apps.nerf.render +ckpt=<path/to/model.pth> poses.n_poses=10 output.grid=False output.transparent=False
+```shell
+python -m torchngp.apps.nerf.render \
+    +ckpt=<path/to/model.pth> \
+    poses.n_poses=10 \
+    output.grid=False \
+    output.transparent=False
 ```
 
 ## More results
