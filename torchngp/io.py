@@ -41,8 +41,7 @@ def cam_from_json(path: str, slice: str = None) -> geometric.MultiViewCamera:
     path = Path(path)
     data = _load_json(path)
 
-    Rs = []
-    Ts = []
+    poses = []
     image_paths = []
     n_skipped = 0
     n_fixed = 0
@@ -79,8 +78,7 @@ def cam_from_json(path: str, slice: str = None) -> geometric.MultiViewCamera:
         flip[2, 2] = -1
 
         t = t @ flip
-        Rs.append(t[:3, :3])
-        Ts.append(t[:3, 3])
+        poses.append(t)
 
     # Handle camera params
     if "h" not in data or "w" not in data:
@@ -104,13 +102,11 @@ def cam_from_json(path: str, slice: str = None) -> geometric.MultiViewCamera:
         cx = data["cx"]
         cy = data["cy"]
 
-    rvec = functional.so3_log(torch.stack(Rs, 0))
-    tvec = torch.stack(Ts, 0)
+    poses = torch.stack(poses, 0)
     image_paths = np.array(image_paths, dtype=object)  # to support advanced indexing
 
     if slice is not None:
-        rvec = eval("rvec[" + slice + "]")
-        tvec = eval("tvec[" + slice + "]")
+        poses = eval("poses[" + slice + "]")
         image_paths = eval("image_paths[" + slice + "]")
 
     _logger.info(
@@ -122,8 +118,7 @@ def cam_from_json(path: str, slice: str = None) -> geometric.MultiViewCamera:
         focal_length=(fl_x, fl_y),
         principal_point=(cx, cy),
         size=(W, H),
-        rvec=rvec,
-        tvec=tvec,
+        poses=poses,
         image_paths=image_paths.tolist(),
     )
 

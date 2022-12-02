@@ -29,23 +29,44 @@ class MultiViewCamera(torch.nn.Module):
         focal_length: tuple[float, float],
         principal_point: tuple[float, float],
         size: tuple[int, int],
-        rvec: Union[torch.Tensor, list[torch.Tensor]],
-        tvec: Union[torch.Tensor, list[torch.Tensor]],
+        rvec: Optional[Union[torch.Tensor, list[torch.Tensor]]] = None,
+        tvec: Optional[Union[torch.Tensor, list[torch.Tensor]]] = None,
+        poses: Optional[Union[torch.Tensor, list[torch.Tensor]]] = None,
         image_paths: Optional[list[str]] = None,
         tnear: float = 0.0,
         tfar: float = 10.0,
     ) -> None:
         super().__init__()
-
         focal_length = torch.as_tensor(focal_length).view(2).float()
         principal_point = torch.as_tensor(principal_point).view(2).float()
         size = torch.as_tensor(size).view(2).int()
         tnear = torch.as_tensor(tnear).view(1).float()
         tfar = torch.as_tensor(tfar).view(1).float()
-        if isinstance(rvec, list):
-            rvec = torch.stack(rvec, 0)
-        if isinstance(tvec, list):
-            tvec = torch.stack(tvec, 0)
+
+        rvec_given = rvec is not None
+        tvec_given = tvec is not None
+        pos_given = poses is not None
+
+        if not (
+            (not rvec_given and not tvec_given and pos_given)
+            or (rvec_given and tvec_given and not pos_given)
+        ):
+            raise ValueError(
+                "Either specify (rvec,tvec) or poses but not both or neither"
+            )
+        if rvec_given:
+            # rvec, tvec specified
+            if isinstance(rvec, list):
+                rvec = torch.stack(rvec, 0)
+            if isinstance(tvec, list):
+                tvec = torch.stack(tvec, 0)
+        else:
+            # poses specified
+            if isinstance(poses, list):
+                poses = torch.stack(poses, 0)
+            rvec = poses[:, :3, :3]
+            rvec = functional.so3_log(rvec)
+            tvec = poses[:, :3, 3]
         rvec = rvec.view(-1, 3).float()
         tvec = tvec.view(-1, 3, 1).float()
 
