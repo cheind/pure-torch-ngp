@@ -60,16 +60,7 @@ def render_task(cfg: DictConfig):
     )
     cam: geometric.MultiViewCamera = instantiate(cfg.camera).cuda()
 
-    axmin, axmax = cam.tvec.min().item(), cam.tvec.max().item()
-
-    ax = plotting.plot_box(vol.aabb)
-    plotting.plot_camera(cam, ax)
-    ax.set_xlim(axmin, axmax)
-    ax.set_ylim(axmin, axmax)
-    ax.set_zlim(axmin, axmax)
-    limits = np.array([getattr(ax, f"get_{axis}lim")() for axis in "xyz"])
-    ax.set_box_aspect(np.ptp(limits, axis=1))
-    ax.set_aspect("equal")
+    ax = plotting.plot_world(vol.aabb, cam)
 
     import matplotlib.pyplot as plt
 
