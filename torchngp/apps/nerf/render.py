@@ -4,9 +4,6 @@ import numpy as np
 import io
 import torch
 import dataclasses
-import matplotlib.pyplot as plt
-from PIL import Image
-from typing import Optional
 
 from pathlib import Path
 from hydra.core.config_store import ConfigStore
