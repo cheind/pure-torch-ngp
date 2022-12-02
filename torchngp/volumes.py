@@ -8,6 +8,8 @@ from . import radiance
 
 
 class Volume(torch.nn.Module):
+    """Represents a physical volume space."""
+
     def __init__(
         self,
         aabb: torch.Tensor,
