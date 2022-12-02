@@ -8,7 +8,7 @@ val_renderer: ${renderer.val_renderer}
 output_dir: ${hydra:runtime.output_dir}
 train_max_time: 600.0
 n_rays_batch_log2: 13
-n_rays_minibatch_log2: 13
+n_rays_parallel_log2: 13
 n_worker: 4
 use_amp: true
 random_uv: true
@@ -33,5 +33,6 @@ callbacks:
       n_rays_interval_log2: 15
     - _target_: torchngp.training.ValidationCallback
       n_rays_interval_log2: 21
+      n_rays_parallel_log2: 14
     - _target_: torchngp.training.ExportCallback
       n_rays_interval_log2: 22
