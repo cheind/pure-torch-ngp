@@ -379,7 +379,7 @@ class ValidationCallback(IntervalTrainingsCallback):
         if trainer.current_loss > self.min_loss:
             return
         _logger.info(
-            f"Validation pass after {trainer.global_step*trainer.n_rays_batch} rays"
+            f"Validation pass after {trainer.global_step*trainer.n_rays_batch:,} rays"
         )
         val_rgba = render_images(
             trainer.volume,
