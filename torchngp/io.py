@@ -1,17 +1,14 @@
 import json
 import logging
 import math
-import numpy as np
 from pathlib import Path
-from typing import Union
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image
 
-from . import functional
-from . import config
-from . import geometric
+from . import config, geometric
 
 _logger = logging.getLogger("torchngp")
 
@@ -160,7 +157,10 @@ def aabb_from_json(path: str) -> torch.Tensor:
     else:
         aabb = torch.tensor(data["aabb"])
 
-    _logger.debug(f"Imported bounds {aabb} from '{str(path)}'.")
+    with np.printoptions(precision=3):
+        _logger.info(
+            f"Imported bounds {aabb[0].numpy()}, {aabb[1].numpy()} from '{str(path)}'."
+        )
     return aabb
 
 

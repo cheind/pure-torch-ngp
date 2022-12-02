@@ -185,6 +185,36 @@ class MultiViewCamera(torch.nn.Module):
 MultiViewCameraConf = config.build_conf(MultiViewCamera)
 
 
+def spherical_poses(
+    n_poses: int = 20,
+    theta_range: tuple[float, float] = (0, 2 * np.pi),
+    phi_range: tuple[float, float] = (70 / 180 * np.pi, 70 / 180 * np.pi),
+    radius_range: tuple[float, float] = (6.0, 6.0),
+    center: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    inclusive: bool = False,
+) -> torch.Tensor:
+    """Returns spherical camera poses from the given parameter ranges.
+
+    Params
+        n_poses: number of total poses
+        theta_range: azimuth angle range in radians
+        phi_range: elevation angle range in radians
+        radius_range: radius range
+        inclusive: Whether to be exclusive or inclusive on ranges
+    """
+    N = n_poses if inclusive else n_poses + 1
+    poses = functional.spherical_pose(
+        theta=torch.linspace(theta_range[0], theta_range[1], N),
+        phi=torch.linspace(phi_range[0], phi_range[1], N),
+        radius=torch.linspace(radius_range[0], radius_range[1], N),
+        center=torch.tensor(center).unsqueeze(0).expand(N, 3),
+    )
+    return poses[:n_poses]
+
+
+SphericalPosesConf = config.build_conf(spherical_poses)
+
+
 @dataclasses.dataclass
 class RayBundle:
     """A collection of rays."""
