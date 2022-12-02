@@ -6,7 +6,9 @@ This repository contains an unofficial implementation of
 > Thomas Müller, Alex Evans, Christoph Schied, Alexander Keller @
 > ACM Transactions on Graphics (SIGGRAPH 2022)
 
-based strictly on PyTorch functionality. Currently, the tasks of learning Neural Radiance Fields and approximating Gigapixel images are implemented.
+based strictly on PyTorch only functionality.
+
+Currently, the tasks of learning Neural Radiance Fields and approximating Gigapixel images are available. The image below shows three novel viewpoints of a Lego model. The underlying NeRF model was trained on a synthetic dataset for about 2 mins using a _NVIDIA GeForce 3090 Ti_.
 
 ![](etc/lego_val.png?raw=true)
 
@@ -26,6 +28,10 @@ based strictly on PyTorch functionality. Currently, the tasks of learning Neural
 -   Automatically generate camera views for scene
 -   Export scene to `transforms.json` for NeRF training
 
+## More results
+
+![](etc/lego.gif)![](etc/suzanne.gif)
+
 ## Performance considerations
 
-This implementation is roughly an order of magnitude slower than the original implementation. That is, it takes a minute what takes the original implementation only a few seconds. In particular, we haven't implemented acceleration structures to speed up learning and we miss an integrated real-time viewer.
+This implementation is roughly an order of magnitude slower than the original implementation. That is, it takes a minute what takes the original implementation only a few seconds. In additiona, we miss an integrated real-time viewer.
