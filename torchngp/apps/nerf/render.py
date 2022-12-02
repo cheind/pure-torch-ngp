@@ -38,6 +38,7 @@ OutputOptionsConf = builds(OutputOptions, populate_full_signature=True)
 RenderTaskConf = make_config(
     ckpt=zf(str, MISSING),
     output=OutputOptionsConf(),
+    n_rays_parallel_log2=zf(int, 14),
     poses=geometric.SphericalPosesConf(
         20,
         theta_range=(0, 2 * np.pi),
@@ -73,15 +74,15 @@ def render_task(cfg: DictConfig):
     vol: volumes.Volume = instantiate(train_cfg.volume)
     vol.load_state_dict(ckpt_data["volume"])
     vol.to(dev).eval()
-    rnd = instantiate(cfg.renderer).to(dev)
+    rnd: rendering.RadianceRenderer = instantiate(cfg.renderer).to(dev)
     cam: geometric.MultiViewCamera = instantiate(cfg.camera).to(dev)
 
     ax = plotting.plot_world(vol.aabb, cam)
     # plt.show()
 
     _logger.info(f"Rendering, saving results to {cfg.output.dir}")
-    rgba = training.render_images(
-        vol, rnd, cam, None, use_amp=True, n_samples_per_view=cam.size[0]
+    rgba = rnd.trace_rgba(
+        vol, cam, use_amp=True, n_rays_parallel=2**cfg.n_rays_parallel_log2
     )
     if not cfg.output.transparent:
         rgba = functional.compose_image_alpha(rgba, 1.0)
