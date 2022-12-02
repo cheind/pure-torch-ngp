@@ -28,6 +28,49 @@ Currently, the tasks of learning Neural Radiance Fields and approximating Gigapi
 -   Automatically generate camera views for scene
 -   Export scene to `transforms.json` for NeRF training
 
+## Installation (using pinned dependencies)
+
+This requires Python 3.9.
+
+Create a virtual env, clone the repo and install the dependencies
+
+```shell
+git clone https://github.com/cheind/pure-torch-ngp.git
+
+cd pure-torch-ngp
+python -m venv .venv
+source .venv/bin/activate
+```
+
+For pinned dependencies (Python 3.9) execute
+
+```
+pip install pip-tools
+pip-sync requirements.txt dev-requirements.txt
+```
+
+Otherwise try
+
+```
+pip install -r requirements.in
+```
+
+## Training
+
+```
+python -m torchngp.apps.nerf.run +data=suzanne
+```
+
+`Hydra` is used for configuration management. The configuration files are stored in `cfgs/`. A folder per run in created in `outputs/` to store intermediate results and model weights.
+
+## Render
+
+To render images from a spherical coordinate trajectory execute
+
+```
+python -m torchngp.apps.nerf.render +ckpt=<path/to/model.pth> poses.n_poses=10 output.grid=False output.transparent=False
+```
+
 ## More results
 
 ![](etc/lego.gif)![](etc/suzanne.gif)
