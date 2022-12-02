@@ -1,7 +1,7 @@
 import torch
 from torch.testing import assert_close
 
-from torchngp import rendering, sampling, geometric
+from torchngp import rendering, sampling, geometric, volumes
 
 from .test_radiance import ColorGradientRadianceField
 
@@ -14,22 +14,23 @@ def test_render_volume_stratified():
         density_scale=1e1,  # soft density scale
         cmap="jet",
     )
+    vol = volumes.Volume(aabb, rf)
 
     cam = geometric.MultiViewCamera(
         focal_length=[50.0, 50.0],
         principal_point=[15.0, 15.0],
         size=[31, 31],
-        R=torch.eye(3),
-        T=torch.Tensor([0.5, 0.5, -1.0]),
+        rvec=torch.zeros(3),
+        tvec=torch.tensor([0.5, 0.5, -1.0]),
         tnear=0.0,
         tfar=10.0,
     )
 
-    rdr = rendering.RadianceRenderer(aabb)
+    rdr = rendering.RadianceRenderer(ray_ext_factor=1)
     which_maps = {"color", "alpha"}
     torch.random.manual_seed(123)
     tsampler = sampling.StratifiedRayStepSampler(n_samples=128)
-    result = rdr.trace_uv(rf, cam, cam.make_uv_grid(), tsampler, which_maps=which_maps)
+    result = rdr.trace_uv(vol, cam, cam.make_uv_grid(), tsampler, which_maps=which_maps)
     img = torch.cat((result["color"], result["alpha"]), -1)
 
     # TODO: test this
@@ -43,7 +44,7 @@ def test_render_volume_stratified():
 
     torch.random.manual_seed(123)
     for uv, _ in sampling.generate_sequential_uv_samples(cam):
-        maps = rdr.trace_uv(rf, cam, uv, tsampler, which_maps=which_maps)
+        maps = rdr.trace_uv(vol, cam, uv, tsampler, which_maps=which_maps)
         color_parts.append(maps["color"])
         alpha_parts.append(maps["alpha"])
 

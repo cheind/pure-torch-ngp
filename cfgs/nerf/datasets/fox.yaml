@@ -1,8 +1,0 @@
-train:
-    _target_: torchngp.io.MultiViewScene
-    path: "data/fox/transforms.json"
-    slice: ":-3"
-val:
-    _target_: torchngp.io.MultiViewScene
-    path: "data/fox/transforms.json"
-    slice: "-3:"

@@ -2,11 +2,11 @@ from typing import Literal, Optional
 from collections import defaultdict
 import torch
 
-from . import radiance
 from . import sampling
 from . import geometric
-from . import filtering
+from . import volumes
 from . import functional
+from . import config
 
 MAPKEY = Literal["color", "depth", "alpha"]
 
@@ -14,41 +14,39 @@ MAPKEY = Literal["color", "depth", "alpha"]
 class RadianceRenderer(torch.nn.Module):
     def __init__(
         self,
-        aabb: torch.Tensor,
-        filter: filtering.SpatialFilter = None,
-        ray_extension: float = 2.0,
+        tsampler: sampling.RayStepSampler = None,
+        ray_ext_factor: float = 10.0,
     ) -> None:
         super().__init__()
-        self.filter = filter or filtering.BoundsFilter()
-        self.register_buffer("aabb", aabb)
-        self.aabb: torch.Tensor
-        self.ray_extension = ray_extension
+        self.ray_ext_factor = ray_ext_factor
+        self.tsampler = tsampler or sampling.StratifiedRayStepSampler(256)
 
     def trace_uv(
         self,
-        rf: radiance.RadianceField,
+        vol: volumes.Volume,
         cam: geometric.MultiViewCamera,
         uv: torch.Tensor,
-        tsampler: sampling.RayStepSampler,
+        tsampler: Optional[sampling.RayStepSampler] = None,
         which_maps: Optional[set[MAPKEY]] = None,
     ) -> dict[MAPKEY, Optional[torch.Tensor]]:
         # if ray_td is None:
         #     ray_td = torch.norm(self.aabb[1] - self.aabb[0]) / 1024
         if which_maps is None:
             which_maps = {"color", "alpha"}
+        tsampler = tsampler or self.tsampler
 
         # Output alloc
         bshape = uv.shape[:-1]
         result = defaultdict(None)
         if "color" in which_maps:
-            result["color"] = uv.new_zeros(bshape + (rf.n_color_dims,))
+            result["color"] = uv.new_zeros(bshape + (vol.radiance_field.n_color_dims,))
         if "alpha" in which_maps:
             result["alpha"] = uv.new_zeros(bshape + (1,))
         if "depth" in which_maps:
             result["depth"] = uv.new_zeros(bshape + (1,))
 
         rays = geometric.RayBundle.make_world_rays(cam, uv)
-        rays = rays.intersect_aabb(self.aabb)
+        rays = rays.intersect_aabb(vol.aabb)
         active_mask = rays.active_mask()
         active_rays = rays.filter_by_mask(active_mask)
 
@@ -60,7 +58,7 @@ class RadianceRenderer(torch.nn.Module):
 
         # Query radiance field at sample locations.
         ts_color, ts_density = self._query_radiance_field(
-            rf,
+            vol,
             active_rays,
             ts,
         )
@@ -70,7 +68,7 @@ class RadianceRenderer(torch.nn.Module):
             ts_density,
             ts,
             active_rays.dnorm,
-            tfinal=active_rays.tfar + self.ray_extension,
+            tfinal=active_rays.tfar * self.ray_ext_factor,
         )
 
         # Compute result maps
@@ -85,14 +83,15 @@ class RadianceRenderer(torch.nn.Module):
 
     def trace_maps(
         self,
-        rf: radiance.RadianceField,
+        vol: volumes.Volume,
         cam: geometric.MultiViewCamera,
-        tsampler: sampling.RayStepSampler,
+        tsampler: Optional[sampling.RayStepSampler],
         which_maps: Optional[set[MAPKEY]] = None,
-        n_samples_per_cam: int = None,
+        n_samples_per_cam: Optional[int] = None,
     ) -> dict[MAPKEY, Optional[torch.Tensor]]:
         if which_maps is None:
             which_maps = {"color", "alpha"}
+        tsampler = tsampler or self.tsampler
 
         gen = sampling.generate_sequential_uv_samples(
             camera=cam, image=None, n_samples_per_cam=n_samples_per_cam
@@ -101,7 +100,7 @@ class RadianceRenderer(torch.nn.Module):
         parts = []
         for uv, _ in gen:
             result = self.trace_uv(
-                rf=rf,
+                vol=vol,
                 cam=cam,
                 uv=uv,
                 tsampler=tsampler,
@@ -119,29 +118,31 @@ class RadianceRenderer(torch.nn.Module):
 
     def _query_radiance_field(
         self,
-        rf: radiance.RadianceField,
+        vol: volumes.Volume,
         rays: geometric.RayBundle,
         ts: torch.Tensor,
     ):
         """Query the radiance field for the given points `xyz=o + d*ts`"""
         batch_shape = ts.shape[:-1]
-        out_color = ts.new_zeros(batch_shape + (rf.n_color_dims,))
-        out_density = ts.new_zeros(batch_shape + (rf.n_density_dims,))
+        out_color = ts.new_zeros(batch_shape + (vol.radiance_field.n_color_dims,))
+        out_density = ts.new_zeros(batch_shape + (vol.radiance_field.n_density_dims,))
 
         # Evaluate world points (T,N,...,3)
         xyz = rays(ts)
 
         ray_ynm = None
-        with_harmonics = rf.n_color_cond_dims > 0
+        with_harmonics = vol.radiance_field.n_color_cond_dims > 0
         if with_harmonics:
             dn = rays.d / rays.dnorm
-            ray_ynm = functional.rsh_cart_3(dn).unsqueeze(0).expand(ts.shape[0], -1, -1)
+            ray_ynm = (
+                functional.rsh_cart_3(dn).unsqueeze(0).expand(ts.shape[0], -1, -1)
+            )  # (T,N,...,16)
 
         # Convert to ndc (T,N,...,3)
-        xyz_ndc = functional.convert_world_to_box_normalized(xyz, self.aabb)
+        xyz_ndc = vol.to_ndc(xyz)
 
         # Filter (T,N,...)
-        mask = self.filter.test(xyz_ndc)
+        mask = vol.spatial_filter.test(xyz_ndc)
 
         # (V,3)
         xyz_ndc_masked = xyz_ndc[mask]
@@ -149,8 +150,14 @@ class RadianceRenderer(torch.nn.Module):
             ray_ynm = ray_ynm[mask]
 
         # Predict
-        color, density = rf(xyz_ndc_masked, color_cond=ray_ynm)
+        color, density = vol.radiance_field(xyz_ndc_masked, color_cond=ray_ynm)
 
         out_color[mask] = color.to(out_color.dtype)
         out_density[mask] = density.to(density.dtype)
         return out_color, out_density
+
+
+RadianceRendererConf = config.build_conf(
+    RadianceRenderer,
+    tsampler=sampling.StratifiedRayStepSamplerConf(128),
+)

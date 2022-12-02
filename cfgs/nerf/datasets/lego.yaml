@@ -1,7 +1,0 @@
-train:
-    _target_: torchngp.io.MultiViewScene
-    path: data/lego/transforms_train.json
-val:
-    _target_: torchngp.io.MultiViewScene
-    path: data/lego/transforms_val.json
-    slice: :2

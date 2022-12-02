@@ -5,12 +5,13 @@ import torch.nn.functional as F
 
 from . import geometric
 from . import functional
+from . import config
 
 
 def generate_random_uv_samples(
     camera: geometric.MultiViewCamera,
-    image: torch.Tensor = None,
-    n_samples_per_cam: int = None,
+    image: Optional[torch.Tensor] = None,
+    n_samples_per_cam: Optional[int] = None,
     subpixel: bool = True,
 ) -> Iterator[tuple[torch.Tensor, Optional[torch.Tensor]]]:
     """Generate random pixel samples.
@@ -58,8 +59,8 @@ def generate_random_uv_samples(
 
 def generate_sequential_uv_samples(
     camera: geometric.MultiViewCamera,
-    image: torch.Tensor = None,
-    n_samples_per_cam: int = None,
+    image: Optional[torch.Tensor] = None,
+    n_samples_per_cam: Optional[int] = None,
     n_passes: int = 1,
 ) -> Iterator[tuple[torch.Tensor, Optional[torch.Tensor]]]:
     """Generate sequential pixel samples.
@@ -113,14 +114,18 @@ class RayStepSampler(Protocol):
         ...
 
 
-class StratifiedRayStepSampler(RayStepSampler):
+class StratifiedRayStepSampler(torch.nn.Module, RayStepSampler):
     def __init__(self, n_samples: int = 128) -> None:
+        super().__init__()
         self.n_samples = n_samples
 
     def __call__(self, rays: geometric.RayBundle) -> torch.Tensor:
         return functional.sample_ray_step_stratified(
             rays.tnear, rays.tfar, self.n_samples
         )
+
+
+StratifiedRayStepSamplerConf = config.build_conf(StratifiedRayStepSampler)
 
 
 def _sample_features_uv(

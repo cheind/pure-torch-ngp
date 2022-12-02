@@ -1,0 +1,37 @@
+_partial_: true
+_target_: torchngp.training.NeRFTrainer
+volume: ${volume}
+train_camera: ${data.cameras.train_camera}
+val_camera: ${data.cameras.val_camera}
+train_renderer: ${renderer.train_renderer}
+val_renderer: ${renderer.val_renderer}
+output_dir: ${hydra:runtime.output_dir}
+train_max_time: 600.0
+n_rays_batch_log2: 13
+n_rays_minibatch_log2: 13
+n_worker: 4
+use_amp: true
+random_uv: true
+subpixel_uv: true
+preload: false
+optimizer:
+    _target_: torchngp.training.OptimizerParams
+    lr: 0.01
+    betas:
+        - 0.9
+        - 0.99
+    eps: 1.0e-15
+    decay_encoder: 0.0
+    decay_density: 1.0e-07
+    decay_color: 1.0e-07
+    sched_factor: 0.75
+    sched_patience: 200
+    sched_minlr: 0.0005
+dev: null
+callbacks:
+    - _target_: torchngp.training.UpdateSpatialFilterCallback
+      n_rays_interval_log2: 15
+    - _target_: torchngp.training.ValidationCallback
+      n_rays_interval_log2: 21
+    - _target_: torchngp.training.ExportCallback
+      n_rays_interval_log2: 22
