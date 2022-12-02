@@ -56,7 +56,7 @@ pip install -r requirements.in
 ## Training
 
 ```
-python -m torchngp.apps.nerf.run +data=suzanne
+python -m torchngp.apps.nerf.train data=suzanne
 ```
 
 [Hydra](https://hydra.cc/docs/intro/) is used for configuration management. The configuration files are stored in `cfgs/`. A folder per run in created in `outputs/` to store intermediate results and model weights.
