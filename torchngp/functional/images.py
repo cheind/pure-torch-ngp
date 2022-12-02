@@ -2,7 +2,9 @@
 
 from typing import Union
 from PIL import Image
+from pathlib import Path
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from torchvision.utils import make_grid
@@ -109,11 +111,30 @@ def save_image(rgba: torch.Tensor, outpath: str, individual: bool = False):
         Image.fromarray(img, mode="RGBA").save(outp)
 
 
+def load_image(
+    paths: list[Path],
+    dtype: torch.dtype = None,
+    device: torch.device = None,
+) -> torch.Tensor:
+    """Load images associated with this camera."""
+    assert len(paths) > 0
+    loaded = []
+    for path in paths:
+        img = Image.open(path).convert("RGBA")
+        img = (
+            torch.tensor(np.asarray(img), dtype=dtype, device=device).permute(2, 0, 1)
+            / 255.0
+        )
+        loaded.append(img)
+    return torch.stack(loaded, 0)
+
+
 __all__ = [
     "checkerboard_image",
     "constant_image",
     "scale_image",
     "create_image_grid",
     "save_image",
+    "load_image",
     "compose_image_alpha",
 ]

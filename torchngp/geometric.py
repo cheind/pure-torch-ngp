@@ -163,16 +163,18 @@ class MultiViewCamera(torch.nn.Module):
 
     def load_images(self, base_path: Path = None) -> torch.Tensor:
         """Load images associated with this camera."""
-        if base_path is None:
-            base_path = Path.cwd()
+
         if self.image_paths is None or len(self.image_paths) == 0:
-            return self.rvec.new_empty((0, self.size[1], self.size[2], 4))
-        loaded = []
-        for path in self.image_paths:
-            img = Image.open(path).convert("RGBA")
-            img = self.rvec.new_tensor(np.asarray(img)).float().permute(2, 0, 1) / 255.0
-            loaded.append(img)
-        return torch.stack(loaded, 0)
+            imgs = self.rvec.new_empty((0, self.size[1], self.size[2], 4))
+        else:
+            if base_path is None:
+                base_path = Path.cwd()
+            paths = [base_path / p for p in self.image_paths]
+
+            imgs = functional.load_image(
+                paths, dtype=self.rvec.dtype, device=self.rvec.device
+            )
+        return imgs
 
     def extra_repr(self):
         out = ""
