@@ -54,9 +54,17 @@ def checkerboard_image(
 def constant_image(
     shape: tuple[int, int, int, int],
     c: Union[torch.Tensor, tuple[float, float, float, float]],
+    dtype: torch.dtype = None,
+    device: torch.device = None,
 ) -> torch.Tensor:
-    c = torch.as_tensor(c)
+    c = torch.as_tensor(c, dtype=dtype, device=device)
     return c.view(1, -1, 1, 1).expand(*shape)
+
+
+def compose_image_alpha(rgba: torch.Tensor, rgb: torch.Tensor):
+    alpha = rgba[:, 3:4]
+    c = rgba[:, :3] * alpha + (1 - alpha) * rgb
+    return torch.cat((c, c.new_ones(rgba.shape[0], 1, rgba.shape[2], rgba.shape[3])), 1)
 
 
 def scale_image(
@@ -80,7 +88,7 @@ def save_image(rgba: torch.Tensor, outpath: str, individual: bool = False):
         rgba = create_image_grid(rgba, padding=0)
     rgba = (rgba * 255).to(torch.uint8).permute(0, 2, 3, 1).cpu().numpy()
     for idx, img in enumerate(rgba):
-        outp = outpath.format(idx=idx)
+        outp = str(outpath).format(idx=idx)
         Image.fromarray(img, mode="RGBA").save(outp)
 
 
@@ -90,4 +98,5 @@ __all__ = [
     "scale_image",
     "create_image_grid",
     "save_image",
+    "compose_image_alpha",
 ]
