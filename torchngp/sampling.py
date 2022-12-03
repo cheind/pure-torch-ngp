@@ -57,6 +57,79 @@ def generate_random_uv_samples(
         yield uv, feature_uv
 
 
+def generate_randperm_uv_samples(
+    camera: geometric.MultiViewCamera,
+    image: Optional[torch.Tensor] = None,
+    n_samples_per_cam: Optional[int] = None,
+    subpixel: bool = True,
+) -> Iterator[tuple[torch.Tensor, Optional[torch.Tensor]]]:
+    """Generate random pixel samples.
+
+    This method is similar to `generate_random_uv_samples`, but
+    ensures that every pixel is visited once before randomizing
+    the access again. The method `generate_random_uv_samples` is
+    more of Monte Carlo style in that it might generate quite a
+    few duplicates.
+
+    Params:
+        camera: a batch of N perspective cameras
+        image: (N,C,H,W) image tensor with C feature channels
+        n_samples_per_cam: number of samples from each camera to
+            draw. If not specified, defaults to W.
+        subpixel: whether subpixel coordinates are allowed.
+    Generates:
+        uv: (N, n_samples_per_cam, 2) sampled coordinates
+        uv_feature (N, n_samples_per_cam, C) samples features
+    """
+    N = camera.n_views
+    M = n_samples_per_cam or camera.size[0].item()
+
+    uvgrid = camera.make_uv_grid()  # (N,H,W,2)
+    uvgrid = uvgrid.view(N, -1, 2)  # (N,L,2)
+    dev = uvgrid.device
+    L = uvgrid.shape[1]
+
+    if subpixel:
+        noise = camera.R.new_empty((N, M, 2))
+        bounds = (1 - 1e-7) * 0.5
+
+    pos = 0
+    # batched version of randperm (N,L)
+    ids = torch.argsort(torch.rand(N, L, device=uvgrid.device), dim=-1)
+    while True:
+        # Reshuffle if necessary
+        if (pos + M) > L:
+            ids = torch.argsort(torch.rand(N, L, device=uvgrid.device), dim=-1)
+            pos = 0
+
+        # Get next M random ids
+        rand_ids = ids[:, pos : pos + M]  # (N,M)
+        # Map to uv coords
+        uv = []
+        for i in range(N):
+            uv.append(uvgrid[i, rand_ids[i, :]])
+        uv = torch.stack(uv, 0)
+
+        # Add noise (+/- 0.5)
+        if subpixel:
+            noise.uniform_(-bounds, bounds)
+            uv = uv + noise
+
+        # TODO: if we want to support radial distortions, we need
+        # to forward distort uvs here.
+
+        # Compute color features
+        feature_uv = None
+        if image is not None:
+            uvn = (uv + 0.5) * 2 / camera.size[None, None, :] - 1.0
+            feature_uv = _sample_features_uv(
+                camera_images=image, camera_uvs=uvn, subpixel=subpixel
+            )
+
+        yield uv, feature_uv
+        pos += M
+
+
 def generate_sequential_uv_samples(
     camera: geometric.MultiViewCamera,
     image: Optional[torch.Tensor] = None,

@@ -237,3 +237,51 @@ def test_generate_random_uv_samples():
     err = (counter - exp_freq).square().mean().sqrt()
     rel_error = err / counter.sum()
     assert rel_error < 0.01
+
+
+def test_generate_randperm_uv_samples():
+    H, W = 5, 5
+    cam = geometric.MultiViewCamera(
+        focal_length=[2.0, 2.0],
+        principal_point=[1.0, 1.0],
+        size=[W, H],
+        rvec=[torch.zeros(3), torch.zeros(3)],
+        tvec=[torch.zeros(3), torch.zeros(3)],
+        tnear=0.0,
+        tfar=10.0,
+    )
+
+    imgs = torch.randn(2, 1, 5, 5).expand(2, 1, 5, 5)
+    N = 1000
+    M = 4
+    gen = sampling.generate_randperm_uv_samples(
+        cam, image=imgs, n_samples_per_cam=M, subpixel=True
+    )
+
+    from itertools import islice
+    import torch.nn.functional as F
+
+    counter = torch.zeros((H, W))
+    for uv, f in islice(gen, N):
+        uvn = (uv + 0.5) * 2 / torch.tensor([[W, H]]) - 1.0
+        f_ref = (
+            F.grid_sample(
+                imgs,
+                uvn.unsqueeze(-2),
+                mode="bilinear",
+                padding_mode="border",
+                align_corners=False,
+            )
+            .squeeze(-1)
+            .permute(0, 2, 1)
+        )
+        assert (f_ref - f).abs().sum() < 1e-5
+        uvc = uv.round().long().view(-1, 2)
+        coords, freq = torch.unique(uvc, dim=0, return_counts=True)
+        counter[coords[:, 1], coords[:, 0]] += freq
+
+    # Test for uniform dist
+    exp_freq = (imgs.shape[0] * N * M) / (H * W)
+    err = (counter - exp_freq).square().mean().sqrt()
+    rel_error = err / counter.sum()
+    assert rel_error < 0.01
