@@ -262,7 +262,7 @@ class NeRFTrainer:
             camera=train_camera,
             images=train_camera.load_images(),
             n_samples_per_view=n_samples_per_view,
-            moed=self.sample_uv_mode,
+            mode=self.sample_uv_mode,
             subpixel=self.sample_uv_subpixel,
         )
 
