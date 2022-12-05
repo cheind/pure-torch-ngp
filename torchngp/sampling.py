@@ -86,7 +86,6 @@ def generate_randperm_uv_samples(
 
     uvgrid = camera.make_uv_grid()  # (N,H,W,2)
     uvgrid = uvgrid.view(N, -1, 2)  # (N,L,2)
-    dev = uvgrid.device
     L = uvgrid.shape[1]
 
     if subpixel:
