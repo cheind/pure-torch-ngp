@@ -219,7 +219,7 @@ SphericalPosesConf = config.build_conf(spherical_poses)
 
 @dataclasses.dataclass
 class RayBundle:
-    """A collection of rays."""
+    """A collection of world rays."""
 
     o: torch.Tensor  # (N,...,3)
     d: torch.Tensor  # (N,...,3)
@@ -312,3 +312,12 @@ class RayBundle:
             mask: (N,...) tensor of active rays
         """
         return (self.tnear < self.tfar).squeeze(-1)
+
+    def encode_raydir(self):
+        """Encodes the ray directions using spherical harmonics projection.
+
+        Returns:
+            ynm: (N,...,16) spherical harmonics of order 0,1,2,3.
+        """
+        dn = self.d / self.dnorm
+        return functional.rsh_cart_3(dn)
