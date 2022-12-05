@@ -3,14 +3,13 @@ import dataclasses
 import logging
 import time
 import math
-from typing import Union, Optional, Protocol
+from typing import Optional, Protocol, Literal
 from itertools import islice
 
 import torch
 import torch.nn
 import torch.nn.functional as F
 import torch.utils.data
-from PIL import Image
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 from pathlib import Path
@@ -34,7 +33,7 @@ class MultiViewDataset(torch.utils.data.IterableDataset):
         camera: geometric.MultiViewCamera,
         images: torch.Tensor,
         n_samples_per_view: Optional[int] = None,
-        random: bool = True,
+        mode: Literal["randperm", "random", "sequential"] = "randperm",
         subpixel: bool = True,
     ):
         self.camera = camera
@@ -44,28 +43,36 @@ class MultiViewDataset(torch.utils.data.IterableDataset):
             # width of image per mini-batch
             n_samples_per_view = camera.size[0].item()  # type: ignore
         self.n_samples_per_view = n_samples_per_view
-        self.random = random
-        self.subpixel = subpixel if random else False
+        self.mode = mode
+        self.subpixel = subpixel if mode != "sequential" else False
 
     def __iter__(self):
         n_worker = torch.utils.data.get_worker_info().num_workers
-        if self.random:
-            return islice(
-                sampling.generate_random_uv_samples(
-                    camera=self.camera,
-                    image=self.images,
-                    n_samples_per_cam=self.n_samples_per_view,
-                    subpixel=self.subpixel,
-                ),
-                int(math.ceil(len(self) / n_worker)),
+        if self.mode == "random":
+            gen = sampling.generate_random_uv_samples(
+                camera=self.camera,
+                image=self.images,
+                n_samples_per_cam=self.n_samples_per_view,
+                subpixel=self.subpixel,
             )
-        else:
-            return sampling.generate_sequential_uv_samples(
+        elif self.mode == "randperm":
+            gen = sampling.generate_randperm_uv_samples(
+                camera=self.camera,
+                image=self.images,
+                n_samples_per_cam=self.n_samples_per_view,
+                subpixel=self.subpixel,
+            )
+        elif self.mode == "sequential":
+            gen = sampling.generate_sequential_uv_samples(
                 camera=self.camera,
                 image=self.images,
                 n_samples_per_cam=self.n_samples_per_view,
                 n_passes=1,
             )
+        else:
+            raise ValueError(f"Unknown sampling mode {self.mode}.")
+
+        return islice(gen, int(math.ceil(len(self) / n_worker)))  # TODO: doc why
 
     def __len__(self) -> int:
         # Number of mini-batches required to match with number of total pixels
@@ -147,8 +154,8 @@ class NeRFTrainer:
     n_rays_parallel_log2: int = 14
     n_worker: int = 4
     use_amp: bool = True
-    random_uv: bool = True
-    subpixel_uv: bool = True
+    sample_uv_mode: str = "randperm"
+    sample_uv_subpixel: bool = True
     preload: bool = False
     dev: Optional[torch.device] = None
     optimizer: OptimizerParams = dataclasses.field(default_factory=OptimizerParams)
@@ -255,8 +262,8 @@ class NeRFTrainer:
             camera=train_camera,
             images=train_camera.load_images(),
             n_samples_per_view=n_samples_per_view,
-            random=self.random_uv,
-            subpixel=self.subpixel_uv,
+            moed=self.sample_uv_mode,
+            subpixel=self.sample_uv_subpixel,
         )
 
         train_dl = torch.utils.data.DataLoader(

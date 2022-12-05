@@ -11,8 +11,8 @@ n_rays_batch_log2: 13
 n_rays_parallel_log2: 13
 n_worker: 4
 use_amp: true
-random_uv: true
-subpixel_uv: true
+sample_uv_mode: randperm
+sample_uv_subpixel: true
 preload: false
 optimizer:
     _target_: torchngp.training.OptimizerParams
