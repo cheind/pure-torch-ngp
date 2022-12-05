@@ -69,12 +69,27 @@ class RadianceRenderer(torch.nn.Module):
         # Sample along rays
         ts = tsampler(active_rays)
 
-        # Query radiance field at sample locations.
-        ts_color, ts_density = self._query_radiance_field(
-            vol,
-            active_rays,
-            ts,
-        )
+        # Evaluate ray locations
+        xyz = active_rays(ts)
+
+        # Query radiance field at sample locations
+        if "color" in which_maps:
+            ynm = active_rays.encode_raydir()
+            # ynm (N,...,16) -> (T,N,...,16)
+            print(ynm.shape)
+            ynm = ynm.unsqueeze(0).expand(ts.shape[0], *ynm.shape)
+            print(ynm.shape)
+            ts_density, ts_color = vol.sample(
+                xyz,
+                ynm=ynm,
+                return_color=True,
+            )
+        else:
+            ts_density, ts_color = vol.sample(
+                xyz,
+                ynm=None,
+                return_color=False,
+            )
 
         # Compute integration weights
         ts_weights = functional.integrate_timesteps(
@@ -141,46 +156,6 @@ class RadianceRenderer(torch.nn.Module):
             k: torch.cat([p[k] for p in parts], 1).view(N, H, W, -1) for k in which_maps
         }
         return result
-
-    def _query_radiance_field(
-        self,
-        vol: volumes.Volume,
-        rays: geometric.RayBundle,
-        ts: torch.Tensor,
-    ):
-        """Query the radiance field for the given points `xyz=o + d*ts`"""
-        batch_shape = ts.shape[:-1]
-        out_color = ts.new_zeros(batch_shape + (vol.radiance_field.n_color_dims,))
-        out_density = ts.new_zeros(batch_shape + (vol.radiance_field.n_density_dims,))
-
-        # Evaluate world points (T,N,...,3)
-        xyz = rays(ts)
-
-        ray_ynm = None
-        with_harmonics = vol.radiance_field.n_color_cond_dims > 0
-        if with_harmonics:
-            dn = rays.d / rays.dnorm
-            ray_ynm = (
-                functional.rsh_cart_3(dn).unsqueeze(0).expand(ts.shape[0], -1, -1)
-            )  # (T,N,...,16)
-
-        # Convert to ndc (T,N,...,3)
-        xyz_ndc = vol.to_ndc(xyz)
-
-        # Filter (T,N,...)
-        mask = vol.spatial_filter.test(xyz_ndc)
-
-        # (V,3)
-        xyz_ndc_masked = xyz_ndc[mask]
-        if with_harmonics:
-            ray_ynm = ray_ynm[mask]
-
-        # Predict
-        color, density = vol.radiance_field(xyz_ndc_masked, color_cond=ray_ynm)
-
-        out_color[mask] = color.to(out_color.dtype)
-        out_density[mask] = density.to(density.dtype)
-        return out_color, out_density
 
     def trace_rgba(
         self,
