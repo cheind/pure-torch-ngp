@@ -14,12 +14,9 @@ from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 from pathlib import Path
 
+
 from . import (
-    geometric,
-    rendering,
-    sampling,
-    volumes,
-    radiance,
+    modules,
     config,
     functional,
 )
@@ -30,7 +27,7 @@ _logger = logging.getLogger("torchngp")
 class MultiViewDataset(torch.utils.data.IterableDataset):
     def __init__(
         self,
-        camera: geometric.MultiViewCamera,
+        camera: modules.MultiViewCamera,
         images: torch.Tensor,
         n_samples_per_view: Optional[int] = None,
         mode: Literal["randperm", "random", "sequential"] = "randperm",
@@ -48,26 +45,37 @@ class MultiViewDataset(torch.utils.data.IterableDataset):
 
     def __iter__(self):
         n_worker = torch.utils.data.get_worker_info().num_workers
+        dtype = self.camera.focal_length.dtype
+        device = self.camera.focal_length.device
         if self.mode == "random":
-            gen = sampling.generate_random_uv_samples(
-                camera=self.camera,
+            gen = functional.generate_random_uv_samples(
+                uv_size=self.camera.size,
+                n_views=self.camera.n_views,
                 image=self.images,
-                n_samples_per_cam=self.n_samples_per_view,
+                n_samples_per_view=self.n_samples_per_view,
                 subpixel=self.subpixel,
+                dtype=dtype,
+                device=device,
             )
         elif self.mode == "randperm":
-            gen = sampling.generate_randperm_uv_samples(
-                camera=self.camera,
+            gen = functional.generate_randperm_uv_samples(
+                uv_size=self.camera.size,
+                n_views=self.camera.n_views,
                 image=self.images,
-                n_samples_per_cam=self.n_samples_per_view,
+                n_samples_per_view=self.n_samples_per_view,
                 subpixel=self.subpixel,
+                dtype=dtype,
+                device=device,
             )
         elif self.mode == "sequential":
-            gen = sampling.generate_sequential_uv_samples(
-                camera=self.camera,
+            gen = functional.generate_sequential_uv_samples(
+                uv_size=self.camera.size,
+                n_views=self.camera.n_views,
                 image=self.images,
-                n_samples_per_cam=self.n_samples_per_view,
+                n_samples_per_view=self.n_samples_per_view,
                 n_passes=1,
+                dtype=dtype,
+                device=device,
             )
         else:
             raise ValueError(f"Unknown sampling mode {self.mode}.")
@@ -100,11 +108,11 @@ class OptimizerParams:
 @dataclasses.dataclass
 class NeRFTrainer:
     resolved_cfg: str
-    volume: volumes.Volume
-    train_camera: geometric.MultiViewCamera
-    val_camera: Optional[geometric.MultiViewCamera] = None
-    train_renderer: Optional[rendering.RadianceRenderer] = None
-    val_renderer: Optional[rendering.RadianceRenderer] = None
+    volume: modules.Volume
+    train_camera: modules.MultiViewCamera
+    val_camera: Optional[modules.MultiViewCamera] = None
+    train_renderer: Optional[modules.RadianceRenderer] = None
+    val_renderer: Optional[modules.RadianceRenderer] = None
     output_dir: Path = Path("./tmp")
     train_max_time: float = 60 * 10
     n_rays_batch_log2: int = 14
@@ -130,7 +138,7 @@ class NeRFTrainer:
         if self.val_camera is None:
             self.val_camera = self.train_camera[:3]
         if self.train_renderer is None:
-            self.train_renderer = rendering.RadianceRenderer()
+            self.train_renderer = modules.RadianceRenderer()
         if self.val_renderer is None:
             self.val_renderer = self.train_renderer
         self.output_dir = Path(self.output_dir)
@@ -204,7 +212,7 @@ class NeRFTrainer:
 
     def _create_train_dataloader(
         self,
-        train_camera: geometric.MultiViewCamera,
+        train_camera: modules.MultiViewCamera,
         n_worker: int,
     ):
         if not self.preload:
@@ -242,7 +250,7 @@ class NeRFTrainer:
     def _create_optimizers(
         self,
     ) -> tuple[torch.optim.Optimizer, torch.optim.lr_scheduler._LRScheduler]:
-        nerf: radiance.NeRF = self.volume.radiance_field  # type: ignore
+        nerf: modules.NeRF = self.volume.radiance_field  # type: ignore
         opt = torch.optim.AdamW(
             [
                 {
@@ -276,7 +284,7 @@ class NeRFTrainer:
     def _create_fwd_bwd_closure(self, scaler: torch.cuda.amp.GradScaler):
         # https://pytorch.org/docs/stable/notes/amp_examples.html#gradient-accumulation
         def run_fwd_bwd(
-            cam: geometric.MultiViewCamera, uv: torch.Tensor, rgba: torch.Tensor
+            cam: modules.MultiViewCamera, uv: torch.Tensor, rgba: torch.Tensor
         ):
             B, N, M, C = rgba.shape
             maps = {"color", "alpha"}

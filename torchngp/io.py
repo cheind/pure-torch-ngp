@@ -114,7 +114,7 @@ def cam_from_json(path: str, slice: str = None) -> modules.MultiViewCamera:
         f" {n_skipped} poses and fixed {n_fixed} poses."
     )
 
-    return geometric.MultiViewCamera(
+    return modules.MultiViewCamera(
         focal_length=(fl_x, fl_y),
         principal_point=(cx, cy),
         size=(W, H),
