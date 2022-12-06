@@ -7,11 +7,11 @@ randperm sampling generates fewer duplications
 and after the same number of samples, reconstructs
 the input image better.
 
-Note, the current impl. of reconstruction 
+Note, the current impl. of reconstruction
 might access duplicate memory locations in place,
 leading to undefined results. This effect is noticable
 in the reconstruction image. An alternative
-reconstruction without this problem is provided 
+reconstruction without this problem is provided
 (commented), but is much slower.
 """
 
