@@ -220,6 +220,7 @@ class NeRFTrainer:
                     if (
                         time.time() - t_started - t_callbacks_elapsed
                     ) > self.train_max_time:
+                        pbar.leave = True
                         _logger.info("Max training time elapsed.")
                         return
                     uv = uv.to(self.dev)
