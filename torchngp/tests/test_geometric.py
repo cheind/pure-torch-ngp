@@ -1,13 +1,13 @@
 import torch
 from torch.testing import assert_close
 
-from torchngp import geometric
+from torchngp import modules
 from torchngp import functional
 
 
 def test_world_rays_shape():
     H, W = 5, 10
-    cam = geometric.MultiViewCamera(
+    cam = modules.MultiViewCamera(
         focal_length=[2.0, 2.0],
         principal_point=[(W + 1) / 2 - 1, (H + 1) / 2 - 1],
         size=[W, H],
@@ -17,7 +17,7 @@ def test_world_rays_shape():
         tfar=10,
     )
 
-    rays = geometric.RayBundle.make_world_rays(cam, cam.make_uv_grid())
+    rays = modules.RayBundle.make_world_rays(cam, cam.make_uv_grid())
 
     assert rays.o.shape == (2, H, W, 3)
     assert rays.d.shape == (2, H, W, 3)
@@ -28,7 +28,7 @@ def test_world_rays_shape():
 def test_world_rays_origins_directions():
 
     H, W = 3, 3
-    cam = geometric.MultiViewCamera(
+    cam = modules.MultiViewCamera(
         focal_length=[2.0, 2.0],
         principal_point=[1.0, 1.0],
         size=[W, H],
@@ -43,7 +43,7 @@ def test_world_rays_origins_directions():
     )
     cam = cam[[0, 0]]  # twice the same cam
 
-    rays = geometric.RayBundle.make_world_rays(cam, cam.make_uv_grid())
+    rays = modules.RayBundle.make_world_rays(cam, cam.make_uv_grid())
     assert_close(rays.tnear, torch.tensor([0.0]).expand_as(rays.tnear))
     assert_close(rays.tfar, torch.tensor([100.0]).expand_as(rays.tnear))
 
@@ -167,3 +167,31 @@ def test_ray_evaluate():
     t = torch.randn(30, 20, 10, 1)
     x = functional.evaluate_ray(o, d, t)  # x is (30,20,10,3)
     assert x.shape == (30, 20, 10, 3)
+
+
+def test_make_multiview_grid():
+    grid = functional.make_multiview_grid(4, (5, 3), dtype=int)
+    assert grid.shape == (4, 3, 5, 2)
+
+    assert_close(grid[0, 0, 0], torch.tensor((0, 0)))
+    assert_close(grid[0, -1, -1], torch.tensor((4, 2)))
+    assert_close(grid[0, -1, 0], torch.tensor((0, 2)))
+    assert_close(grid[0, 0, -1], torch.tensor((4, 0)))
+
+    assert_close(grid[2, 0, 0], torch.tensor((0, 0)))
+    assert_close(grid[2, -1, -1], torch.tensor((4, 2)))
+    assert_close(grid[2, -1, 0], torch.tensor((0, 2)))
+    assert_close(grid[2, 0, -1], torch.tensor((4, 0)))
+
+    grid = functional.make_multiview_grid(4, (5, 3), dtype=torch.float32)
+    assert grid.shape == (4, 3, 5, 2)
+
+    assert_close(grid[0, 0, 0], torch.tensor((0.0, 0)))
+    assert_close(grid[0, -1, -1], torch.tensor((4.0, 2)))
+    assert_close(grid[0, -1, 0], torch.tensor((0.0, 2)))
+    assert_close(grid[0, 0, -1], torch.tensor((4.0, 0)))
+
+    assert_close(grid[2, 0, 0], torch.tensor((0.0, 0)))
+    assert_close(grid[2, -1, -1], torch.tensor((4.0, 2)))
+    assert_close(grid[2, -1, 0], torch.tensor((0.0, 2)))
+    assert_close(grid[2, 0, -1], torch.tensor((4.0, 0)))

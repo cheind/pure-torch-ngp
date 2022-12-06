@@ -4,5 +4,6 @@ from .transforms import *
 from .metrics import *
 from .geometric import *
 from .radiance import *
-from .sampling import *
+from .uv_sampling import *
+from .z_sampling import *
 from .images import *

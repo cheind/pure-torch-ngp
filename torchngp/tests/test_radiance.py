@@ -3,10 +3,10 @@ import torch
 from torch.testing import assert_close
 import matplotlib as mpl
 
-from torchngp import radiance, functional
+from torchngp import modules, functional, helpers
 
 
-class ColorGradientRadianceField(radiance.RadianceField):
+class ColorGradientRadianceField(modules.RadianceField):
     """A test radiance field with a color gradient in x-dir and a planar surface."""
 
     def __init__(
@@ -147,7 +147,7 @@ def test_radiance_integrate_timesteps_sympy():
     assert_close(weights.sum(), torch.tensor(0.4196937821623066))
 
 
-def test_radiance_rasterize_field():
+def test_rasterize_field():
 
     rf = ColorGradientRadianceField(
         surface_pos=0.5 * 2 - 1,
@@ -158,7 +158,7 @@ def test_radiance_rasterize_field():
 
     # Note, rasterization is not the same as integration
     # We only query the volume at particular locations
-    color, sigma = radiance.rasterize_field(rf, resolution=(2, 2, 2))
+    color, sigma = helpers.rasterize_field(rf, resolution=(2, 2, 2))
     assert color.shape == (2, 2, 2, 3)
     assert sigma.shape == (2, 2, 2, 1)
 
@@ -173,7 +173,7 @@ def test_radiance_rasterize_field():
 
 @torch.no_grad()
 def test_radiance_nerf_module():
-    nerf = radiance.NeRF(
+    nerf = modules.NeRF(
         n_colors=3,
         n_hidden=16,
         n_encodings_log2=8,
