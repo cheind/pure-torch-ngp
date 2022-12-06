@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 import torch
 
 
@@ -6,8 +6,8 @@ from .. import config
 from .. import functional
 from . import protocols
 
-if TYPE_CHECKING:
-    from .ray_bundle import RayBundle
+from .ray_bundle import RayBundle
+from .volume import Volume
 
 
 class StratifiedRayStepSampler(torch.nn.Module, protocols.RayStepSampler):
@@ -15,7 +15,8 @@ class StratifiedRayStepSampler(torch.nn.Module, protocols.RayStepSampler):
         super().__init__()
         self.n_samples = n_samples
 
-    def __call__(self, rays: "RayBundle") -> torch.Tensor:
+    def __call__(self, rays: RayBundle, vol: Optional[Volume]) -> torch.Tensor:
+        del vol
         return functional.sample_ray_step_stratified(
             rays.tnear, rays.tfar, self.n_samples
         )

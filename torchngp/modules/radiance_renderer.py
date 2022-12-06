@@ -71,7 +71,7 @@ class RadianceRenderer(torch.nn.Module):
             return result
 
         # Sample along rays
-        ts = tsampler(active_rays)
+        ts = tsampler(active_rays, vol=vol)
 
         # Evaluate ray locations
         xyz = active_rays(ts)

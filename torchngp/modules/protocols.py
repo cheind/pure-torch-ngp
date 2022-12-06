@@ -3,6 +3,7 @@ import torch
 
 if TYPE_CHECKING:
     from .ray_bundle import RayBundle
+    from .volume import Volume
 
 
 class RadianceField(Protocol):
@@ -61,16 +62,17 @@ class RadianceField(Protocol):
 
 
 class RayStepSampler(Protocol):
-    """Protocol for sampling timestep values along rays.
+    """Protocol for sampling z/timestep values along rays.
 
     Note that ray directions are not normalized.
     """
 
-    def __call__(self, rays: "RayBundle") -> torch.Tensor:
-        """Sample timestep values
+    def __call__(self, rays: "RayBundle", vol: Optional["Volume"]) -> torch.Tensor:
+        """Sample timestep/z values along rays.
 
         Params:
             rays: (N,...) bundle of rays
+            vol: radiance volume
 
         Returns:
             ts: (T,N,...,1) timestep samples for each ray.
