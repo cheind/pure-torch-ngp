@@ -1,3 +1,20 @@
+"""Reconstruct image from random sampling.
+
+Shows reconstruction behaviors from different
+sampling strategies.
+
+randperm sampling generates fewer duplications
+and after the same number of samples, reconstructs
+the input image better.
+
+Note, the current impl. of reconstruction 
+might access duplicate memory locations in place,
+leading to undefined results. This effect is noticable
+in the reconstruction image. An alternative
+reconstruction without this problem is provided 
+(commented), but is much slower.
+"""
+
 from torchngp import functional
 from torchngp import encoding
 from torchngp import sampling
@@ -24,7 +41,7 @@ def reconstruct(
         rgba = rgba[0]
         uv = uv[0]
         corners, weights, mask = encoding._bilinear_params_2d(uv, shape=(H, W))
-        # Fast, but collisions
+        # Fast, but collisions leading to noticably visual artefacts
         mask = mask.any(-1)
         c = corners[mask]
         w = weights[mask]
@@ -61,11 +78,17 @@ def main():
 
     fig, axs = plt.subplots(2, 3, sharex=True, sharey=True)
     axs[0, 0].imshow(gt_img)
+    axs[0, 0].set_title("original")
     axs[0, 1].imshow(rec1)
+    axs[0, 1].set_title("rec randperm")
     axs[0, 2].imshow((gt_img - rec1).abs().sum(-1), vmin=0, vmax=1)
+    axs[0, 2].set_title("error randperm")
     axs[1, 0].imshow(gt_img)
+    axs[1, 0].set_title("original")
     axs[1, 1].imshow(rec2)
+    axs[1, 1].set_title("rec randmc")
     axs[1, 2].imshow((gt_img - rec2).abs().sum(-1), vmin=0, vmax=1)
+    axs[1, 2].set_title("error randmc")
     plt.show()
 
 
