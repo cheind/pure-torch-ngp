@@ -28,12 +28,13 @@ import torch.nn
 import torch.nn.functional as F
 import torch.optim
 
-from torchngp import encoding, functional
+from torchngp import functional
 
 from PIL import Image
 from tqdm import tqdm
 
-from torchngp.functional import metrics
+from torchngp import functional
+from torchngp import modules
 
 
 class CompressionModule(torch.nn.Module):
@@ -48,7 +49,7 @@ class CompressionModule(torch.nn.Module):
         max_n_dense: int,
     ) -> None:
         super().__init__()
-        self.encoder = encoding.MultiLevelHybridHashEncoding(
+        self.encoder = modules.MultiLevelHybridHashEncoding(
             n_encodings=n_encodings,
             n_input_dims=2,
             n_embed_dims=2,
@@ -184,7 +185,7 @@ def main():
             pbar.set_postfix(**pbar_postfix, refresh=False)
             pbar.update()
         recimg = render_image(net, ncoords, nimg.shape, mean, std, args.batch_size)
-        psnr, _ = metrics.peak_signal_noise_ratio(
+        psnr, _ = functional.peak_signal_noise_ratio(
             img.unsqueeze(0), recimg.unsqueeze(0), 1.0
         )
         # sched.step(psnr.mean().item())
