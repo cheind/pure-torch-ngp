@@ -14,11 +14,11 @@ from torchngp import (
     volumes,
     rendering,
     training,
-    sampling,
     geometric,
     plotting,
     functional,
 )
+from torchngp.functional import uv_sampling
 
 _logger = logging.getLogger("torchngp")
 logging.getLogger("PIL").setLevel(logging.WARNING)
@@ -54,7 +54,7 @@ RenderTaskConf = make_config(
         poses="${poses}",
     ),
     renderer=rendering.RadianceRendererConf(
-        tsampler=sampling.StratifiedRayStepSamplerConf(512)
+        tsampler=uv_sampling.StratifiedRayStepSamplerConf(512)
     ),
 )
 cs = ConfigStore.instance()

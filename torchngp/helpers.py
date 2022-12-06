@@ -1,12 +1,9 @@
-from typing import TYPE_CHECKING
 import torch
 import numpy as np
 
 from . import functional
 from . import config
-
-if TYPE_CHECKING:
-    from .modules import RadianceField
+from . import modules
 
 
 def spherical_poses(
@@ -40,7 +37,7 @@ SphericalPosesConf = config.build_conf(spherical_poses)
 
 
 def rasterize_field(
-    rf: "RadianceField",
+    rf: modules.RadianceField,
     resolution: tuple[int, int, int],
     batch_size: int = 2**16,
     device: torch.device = None,

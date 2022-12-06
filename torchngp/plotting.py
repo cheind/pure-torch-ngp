@@ -1,16 +1,13 @@
-from typing import TYPE_CHECKING
-
 import numpy as np
 import pytransform3d.camera as pc
 import pytransform3d.plot_utils as pu
 import pytransform3d.transformations as pt
 import torch
 
-if TYPE_CHECKING:
-    from modules import MultiViewCamera
+from . import modules
 
 
-def plot_camera(cam: "MultiViewCamera", ax=None, **kwargs):
+def plot_camera(cam: modules.MultiViewCamera, ax=None, **kwargs):
     """Plot camera objects in 3D."""
     if ax is None:
         ax = pu.make_3d_axis(unit="m", ax_s=1.0)
@@ -49,7 +46,7 @@ def plot_box(aabb: torch.Tensor, ax=None, **kwargs):
     return ax
 
 
-def plot_world(aabb: torch.Tensor, cam: "MultiViewCamera", ax=None):
+def plot_world(aabb: torch.Tensor, cam: modules.MultiViewCamera, ax=None):
     axmin, axmax = cam.tvec.min().item(), cam.tvec.max().item()
     axmin = min(axmin, aabb.min().item())
     axmax = max(axmax, aabb.max().item())

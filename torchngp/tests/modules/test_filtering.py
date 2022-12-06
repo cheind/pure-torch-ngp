@@ -3,7 +3,7 @@ from torch.testing import assert_close
 
 from torchngp import modules
 
-from .test_radiance import ColorGradientRadianceField
+from ..functional.test_radiance import ColorGradientRadianceField
 
 
 def test_bounds_filter():

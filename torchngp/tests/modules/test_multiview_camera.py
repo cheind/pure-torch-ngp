@@ -60,12 +60,12 @@ def test_camera_poses():
         tfar=10,
     )
 
-    cam = cam_partial(
+    _ = cam_partial(
         rvec=[torch.zeros(3), torch.zeros(3)],
         tvec=[torch.tensor([1.0, 2.0, 3.0]), torch.tensor([1.0, 2.0, 3.0])],
     )
 
-    cam = cam_partial(
+    _ = cam_partial(
         poses=[torch.eye(4)] * 2,
     )
 

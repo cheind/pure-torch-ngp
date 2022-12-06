@@ -4,7 +4,7 @@ from torch.testing import assert_close
 from torchngp import modules
 from torchngp.functional import uv_sampling
 
-from .test_radiance import ColorGradientRadianceField
+from ..functional.test_radiance import ColorGradientRadianceField
 
 
 def test_render_volume_stratified():
