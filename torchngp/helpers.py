@@ -2,7 +2,6 @@ import torch
 import numpy as np
 
 from . import functional
-from . import config
 from . import modules
 
 
@@ -31,9 +30,6 @@ def spherical_poses(
         center=torch.tensor(center).unsqueeze(0).expand(N, 3),
     )
     return poses[:n_poses]
-
-
-SphericalPosesConf = config.build_conf(spherical_poses)
 
 
 def rasterize_field(
