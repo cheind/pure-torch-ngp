@@ -1,16 +1,16 @@
-import matplotlib.pyplot as plt
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pytransform3d.camera as pc
 import pytransform3d.plot_utils as pu
 import pytransform3d.transformations as pt
 import torch
-import torch.nn.functional as F
-from torchvision.utils import make_grid
 
-from . import geometric
+if TYPE_CHECKING:
+    from modules import MultiViewCamera
 
 
-def plot_camera(cam: geometric.MultiViewCamera, ax=None, **kwargs):
+def plot_camera(cam: "MultiViewCamera", ax=None, **kwargs):
     """Plot camera objects in 3D."""
     if ax is None:
         ax = pu.make_3d_axis(unit="m", ax_s=1.0)
@@ -49,7 +49,7 @@ def plot_box(aabb: torch.Tensor, ax=None, **kwargs):
     return ax
 
 
-def plot_world(aabb: torch.Tensor, cam: geometric.MultiViewCamera, ax=None):
+def plot_world(aabb: torch.Tensor, cam: "MultiViewCamera", ax=None):
     axmin, axmax = cam.tvec.min().item(), cam.tvec.max().item()
     axmin = min(axmin, aabb.min().item())
     axmax = max(axmax, aabb.max().item())
@@ -65,62 +65,4 @@ def plot_world(aabb: torch.Tensor, cam: geometric.MultiViewCamera, ax=None):
     limits = np.array([getattr(ax, f"get_{axis}lim")() for axis in "xyz"])
     ax.set_box_aspect(np.ptp(limits, axis=1))
     ax.set_aspect("equal")
-    return ax
-
-
-def _checkerboard(shape: tuple[int, ...], k: int = None) -> torch.Tensor:
-    """Returns a checkerboar background.
-    See https://stackoverflow.com/questions/72874737
-    """
-    # nearest h,w multiple of k
-    k = k or max(max(shape) // 20, 1)
-    H = shape[0] + (k - shape[0] % k)
-    W = shape[1] + (k - shape[1] % k)
-    indices = torch.stack(
-        torch.meshgrid(torch.arange(H // k), torch.arange(W // k), indexing="ij")
-    )
-    base = indices.sum(dim=0) % 2
-    x = base.repeat_interleave(k, 0).repeat_interleave(k, 1)
-    return x[: shape[0], : shape[1]]
-
-
-def make_image_grid(
-    imgs: torch.Tensor, checkerboard_bg: bool = True, scale: float = 1.0
-) -> torch.Tensor:
-    H, W = imgs.shape[-2:]
-
-    if imgs.shape[1] == 4:
-        imgs = imgs.detach().clone()
-        rgb = imgs[:, :3]
-        alpha = imgs[:, 3:4]
-        if checkerboard_bg:
-            bg = _checkerboard((H, W)).expand_as(rgb).to(rgb.device)
-        else:
-            bg = torch.zeros_like(rgb)
-
-        rgb[:] = rgb * alpha + (1 - alpha) * bg
-
-    if scale != 1.0:
-        imgs = F.interpolate(
-            imgs,
-            scale_factor=scale,
-            mode="bilinear",
-            align_corners=False,
-            antialias=False,
-        )
-
-    grid_img = make_grid(imgs)
-    return grid_img
-
-
-def plot_image(
-    img: torch.Tensor,
-    checkerboard_bg: bool = True,
-    scale: float = 1.0,
-    ax=None,
-):
-    grid = make_image_grid(img, checkerboard_bg=checkerboard_bg, scale=scale)
-    if ax is None:
-        _, ax = plt.subplots()
-    ax.imshow(grid[:3].permute(1, 2, 0).detach().cpu().numpy())
     return ax

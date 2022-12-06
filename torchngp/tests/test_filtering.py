@@ -1,13 +1,13 @@
 import torch
 from torch.testing import assert_close
 
-from torchngp import filtering
+from torchngp import modules
 
 from .test_radiance import ColorGradientRadianceField
 
 
 def test_bounds_filter():
-    f = filtering.BoundsFilter()
+    f = modules.BoundsFilter()
     nxyz = torch.empty((100, 3)).uniform_(-1.0, 1.0)
     assert f.test(nxyz).all()
 
@@ -17,7 +17,7 @@ def test_bounds_filter():
 
 def test_occupancy_grid_filter_deterministic():
     rf = ColorGradientRadianceField(surface_dim=0, surface_pos=0.0, density_scale=1.0)
-    f = filtering.OccupancyGridFilter(
+    f = modules.OccupancyGridFilter(
         res=4,
         update_decay=1.0,
         update_selection_rate=1.0,
@@ -44,7 +44,7 @@ def test_occupancy_grid_filter_deterministic():
 
 def test_occupancy_grid_filter_non_deterministic():
     rf = ColorGradientRadianceField(surface_dim=0, surface_pos=0.0, density_scale=1.0)
-    f = filtering.OccupancyGridFilter(
+    f = modules.OccupancyGridFilter(
         res=4,
         update_decay=0.2,
         update_selection_rate=1.0,

@@ -17,22 +17,23 @@ reconstruction without this problem is provided
 
 from torchngp import functional
 from torchngp import encoding
-from torchngp import sampling
-from torchngp import geometric
+from torchngp import modules
 import torch
 from itertools import islice
 
 
 def reconstruct(
     image_rgba,
-    method=sampling.generate_random_uv_samples,
+    method=functional.generate_random_uv_samples,
     M=512,
     batches=512,
     subpixel=True,
 ):
     H, W = image_rgba.shape[-2:]
-    cam = geometric.MultiViewCamera((1, 1), (0, 0), size=(W, H), poses=[torch.eye(4)])
-    gen = method(cam, image_rgba, n_samples_per_cam=M, subpixel=subpixel)
+    cam = modules.MultiViewCamera((1, 1), (0, 0), size=(W, H), poses=[torch.eye(4)])
+    gen = method(
+        cam.size, cam.n_views, image_rgba, n_samples_per_view=M, subpixel=subpixel
+    )
     rgba_rec = torch.zeros(
         (H + 2, W + 2, 4)
     )  # slightly larger to account for outside corners
@@ -70,9 +71,13 @@ def main():
     cfg = dict(M=512, batches=512, subpixel=True)
 
     torch.manual_seed(123)
-    rec1 = reconstruct(image_rgba, method=sampling.generate_randperm_uv_samples, **cfg)
+    rec1 = reconstruct(
+        image_rgba, method=functional.uv_sampling.generate_randperm_uv_samples, **cfg
+    )
     torch.manual_seed(123)
-    rec2 = reconstruct(image_rgba, method=sampling.generate_random_uv_samples, **cfg)
+    rec2 = reconstruct(
+        image_rgba, method=functional.uv_sampling.generate_random_uv_samples, **cfg
+    )
 
     gt_img = image_rgba[0].permute(1, 2, 0)
 

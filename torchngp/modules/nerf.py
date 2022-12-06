@@ -1,110 +1,12 @@
-from typing import Optional, Protocol
-
+from typing import Optional
 import torch
 
-from . import functional
+from .. import config
+from . import protocols
 from . import encoding
-from . import config
 
 
-class RadianceField(Protocol):
-    """Protocol of a spatial radiance field.
-
-    A spatial radiance field takes normalized locations plus optional
-    conditioning values and returns color and densities values for
-    each location."""
-
-    n_color_cond_dims: int
-    n_color_dims: int
-    n_density_dims: int
-
-    def __call__(
-        self, xyz: torch.Tensor, color_cond: Optional[torch.Tensor] = None
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        ...
-
-    def encode(self, xyz: torch.Tensor) -> torch.Tensor:
-        """Return features from positions.
-
-        Params:
-            xyz_ndc: (N,...,3) normalized device locations [-1,1]
-
-        Returns:
-            f: (N,...,16) feature values for each sample point
-        """
-        ...
-
-    def decode_density(self, f: torch.Tensor) -> torch.Tensor:
-        """Return density estimates from encoded features.
-
-        Params:
-            f: (N,...,16) feature values for each sample point
-
-        Returns:
-            d: (N,...,1) color values in ranges [0..1]
-        """
-        ...
-
-    def decode_color(
-        self, f: torch.Tensor, cond: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
-        """Return color estimates from encoded features
-
-        Params:
-            f: (N,..., 16) feature values for each sample point
-            cond: (N,...,n_color_cond) conditioning values for each
-                sample point.
-
-        Returns:
-            colors: (N,...,n_colors) color values in range [0,+inf] (when hdr)
-                [0,1] otherwise.
-        """
-        ...
-
-
-def rasterize_field(
-    rf: RadianceField,
-    resolution: tuple[int, int, int],
-    batch_size: int = 2**16,
-    device: torch.device = None,
-    dtype: torch.dtype = None,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Evaluates the radiance field at rasterized grid locations.
-
-    Note, we rasterize at voxel centers.
-
-    Params:
-        nerf: radiance field
-        shape: desired resolution of rasterization in each dimension
-        dev: computation device
-        batch_size: max grid locations per batch
-
-    Returns:
-        color: color values with shape `shape + (C,)` and 'xy' indexing
-        sigma: density values with shape `shape + (1,)` and 'xy' indexing
-    """
-    ijk = functional.make_grid(
-        resolution,
-        indexing="xy",
-        device=device,
-        dtype=dtype,
-    )
-    res = ijk.new_tensor(resolution[::-1])
-    nxyz = (ijk + 0.5) * 2 / res - 1.0
-
-    color_parts = []
-    sigma_parts = []
-    for batch in nxyz.split(batch_size, dim=0):
-        rgb, d = rf(batch)
-        color_parts.append(rgb)
-        sigma_parts.append(d)
-    C = color_parts[0].shape[-1]
-    color = torch.cat(color_parts, 0).view(resolution + (C,))
-    sigma = torch.cat(sigma_parts, 0).view(resolution + (1,))
-    return color, sigma
-
-
-class NeRF(torch.nn.Module, RadianceField):
+class NeRF(torch.nn.Module, protocols.RadianceField):
     """Neural radiance field module.
 
     Currently supports only spatial features and not view dependent ones.
@@ -245,3 +147,8 @@ class NeRF(torch.nn.Module, RadianceField):
 
 
 NeRFConf = config.build_conf(NeRF)
+
+__all__ = [
+    "NeRF",
+    "NeRFConf",
+]

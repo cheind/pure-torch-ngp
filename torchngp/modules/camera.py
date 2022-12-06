@@ -1,16 +1,11 @@
-import dataclasses
-from typing import Union, Optional
+from typing import Optional, Union
 from pathlib import Path
-from PIL import Image
-
 
 import torch
-import torch.nn
 import numpy as np
 
-
-from . import functional
-from . import config
+from .. import functional
+from .. import config
 
 
 class MultiViewCamera(torch.nn.Module):
@@ -186,138 +181,7 @@ class MultiViewCamera(torch.nn.Module):
 
 MultiViewCameraConf = config.build_conf(MultiViewCamera)
 
-
-def spherical_poses(
-    n_poses: int = 20,
-    theta_range: tuple[float, float] = (0, 2 * np.pi),
-    phi_range: tuple[float, float] = (70 / 180 * np.pi, 70 / 180 * np.pi),
-    radius_range: tuple[float, float] = (6.0, 6.0),
-    center: tuple[float, float, float] = (0.0, 0.0, 0.0),
-    inclusive: bool = False,
-) -> torch.Tensor:
-    """Returns spherical camera poses from the given parameter ranges.
-
-    Params
-        n_poses: number of total poses
-        theta_range: azimuth angle range in radians
-        phi_range: elevation angle range in radians
-        radius_range: radius range
-        inclusive: Whether to be exclusive or inclusive on ranges
-    """
-    N = n_poses if inclusive else n_poses + 1
-    poses = functional.spherical_pose(
-        theta=torch.linspace(theta_range[0], theta_range[1], N),
-        phi=torch.linspace(phi_range[0], phi_range[1], N),
-        radius=torch.linspace(radius_range[0], radius_range[1], N),
-        center=torch.tensor(center).unsqueeze(0).expand(N, 3),
-    )
-    return poses[:n_poses]
-
-
-SphericalPosesConf = config.build_conf(spherical_poses)
-
-
-@dataclasses.dataclass
-class RayBundle:
-    """A collection of world rays."""
-
-    o: torch.Tensor  # (N,...,3)
-    d: torch.Tensor  # (N,...,3)
-    tnear: torch.Tensor  # (N,...,1)
-    tfar: torch.Tensor  # (N,...,1)
-    dnorm: torch.Tensor  # (N,...,1)
-
-    @staticmethod
-    def make_world_rays(cam: MultiViewCamera, uv: torch.Tensor) -> "RayBundle":
-        """Returns a new RayBundle from uv coordinates."""
-        o, d, tnear, tfar = functional.make_world_rays(
-            uv,
-            cam.focal_length,
-            cam.principal_point,
-            cam.R,
-            cam.tvec,
-            tnear=cam.tnear,
-            tfar=cam.tfar,
-        )
-        dnorm = torch.norm(d, p=2, dim=-1, keepdim=True)
-
-        return RayBundle(o, d, tnear, tfar, dnorm)
-
-    def __call__(self, ts: torch.Tensor) -> torch.Tensor:
-        """Evaluate rays at given time steps.
-
-        Params:
-            ts: (N,...,1) or more general (T,...,N,...,1) time steps
-
-        Returns:
-            xyz: (N,...,3) / (T,...,N,...,3) locations
-        """
-        return functional.evaluate_ray(self.o, self.d, ts)
-
-    def filter_by_mask(self, mask: torch.BoolTensor) -> "RayBundle":
-        """Filter rays by boolean mask.
-
-        Params:
-            mask: (N,...) tensor
-
-        Returns
-            rays: filtered ray bundle with flattened dimensions
-        """
-        return RayBundle(
-            o=self.o[mask],
-            d=self.d[mask],
-            tnear=self.tnear[mask],
-            tfar=self.tfar[mask],
-            dnorm=self.dnorm[mask],
-        )
-
-    def update_bounds(self, tnear: torch.Tensor, tfar: torch.Tensor) -> "RayBundle":
-        """Updates the bounds of this ray bundle.
-
-        Params:
-            tnear: (N,...,1) near time step values
-            tfar: (N,...,1) far time step values
-
-        Returns:
-            rays: updated ray bundle sharing tensors
-        """
-        tnear = torch.max(tnear, self.tnear)
-        tfar = torch.min(tfar, self.tfar)
-        return RayBundle(o=self.o, d=self.d, tnear=tnear, tfar=tfar, dnorm=self.dnorm)
-
-    def intersect_aabb(self, box: torch.Tensor) -> "RayBundle":
-        """Ray/box intersection.
-
-        Params:
-            box: (2,3) min/max corner of aabb
-
-        Returns:
-            rays: ray bundle with updated bounds
-
-        Adapted from
-        https://github.com/evanw/webgl-path-tracing/blob/master/webgl-path-tracing.js
-        """
-
-        tnear, tfar = functional.intersect_ray_aabb(
-            self.o, self.d, self.tnear, self.tfar, box
-        )
-        return self.update_bounds(tnear, tfar)
-
-    def active_mask(self) -> torch.BoolTensor:
-        """Returns a mask of active rays.
-
-        Active rays have a positive time step range.
-
-        Returns:
-            mask: (N,...) tensor of active rays
-        """
-        return (self.tnear < self.tfar).squeeze(-1)
-
-    def encode_raydir(self):
-        """Encodes the ray directions using spherical harmonics projection.
-
-        Returns:
-            ynm: (N,...,16) spherical harmonics of order 0,1,2,3.
-        """
-        dn = self.d / self.dnorm
-        return functional.rsh_cart_3(dn)
+__all__ = [
+    "MultiViewCamera",
+    "MultiViewCameraConf",
+]

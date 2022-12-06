@@ -4,7 +4,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import torch
 
-from torchngp import functional, geometric, radiance, sampling
+from torchngp import functional
 
 
 def plot_ray(

@@ -1,41 +1,16 @@
-from typing import Protocol
-
 import torch
 
-from . import functional
-from . import config
-from .radiance import RadianceField
+from .. import config
+from .. import functional
+from . import protocols
 
 
-class SpatialFilter(Protocol):
-    """Protocol for a spatial rendering filter.
-
-    A spatial rendering accelerator takes spatial positions in NDC format
-    and returns a mask of samples worthwile considering.
-    """
-
-    def test(self, xyz_ndc: torch.Tensor) -> torch.BoolTensor:
-        """Test given NDC locations.
-
-        Params:
-            xyz_ndc: (N,...,3) tensor of normalized [-1,1] coordinates
-
-        Returns:
-            mask: (N,...) boolean mask of the samples to be processed further
-        """
-        ...
-
-    def update(self, rf: RadianceField):
-        """Update this accelerator."""
-        ...
-
-
-class BoundsFilter(torch.nn.Module, SpatialFilter):
+class BoundsFilter(torch.nn.Module, protocols.SpatialFilter):
     def test(self, xyz_ndc: torch.Tensor) -> torch.BoolTensor:
         mask = ((xyz_ndc >= -1.0) & (xyz_ndc <= 1.0)).all(-1)
         return mask
 
-    def update(self, rf: RadianceField):
+    def update(self, rf: protocols.RadianceField):
         del rf
         pass
 
@@ -82,7 +57,7 @@ class OccupancyGridFilter(BoundsFilter, torch.nn.Module):
         return mask & d_mask
 
     @torch.no_grad()
-    def update(self, rf: RadianceField):
+    def update(self, rf: protocols.RadianceField):
         self.grid *= self.update_decay
 
         if self.update_selection_rate < 1.0:
@@ -109,3 +84,10 @@ class OccupancyGridFilter(BoundsFilter, torch.nn.Module):
 
 
 OccupancyGridFilterConf = config.build_conf(OccupancyGridFilter)
+
+__all__ = [
+    "BoundsFilter",
+    "BoundsFilterConf",
+    "OccupancyGridFilter",
+    "OccupancyGridFilterConf",
+]

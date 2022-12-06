@@ -1,12 +1,16 @@
 from typing import Literal, Optional
 from collections import defaultdict
+
 import torch
 
-from . import sampling
-from . import geometric
-from . import volumes
-from . import functional
-from . import config
+from .. import functional
+from .. import config
+from . import protocols
+from .ray_samplers import StratifiedRayStepSampler
+from .ray_samplers import StratifiedRayStepSamplerConf
+from .volume import Volume
+from .camera import MultiViewCamera
+from .ray_bundle import RayBundle
 
 MAPKEY = Literal["color", "depth", "alpha"]
 
@@ -14,19 +18,19 @@ MAPKEY = Literal["color", "depth", "alpha"]
 class RadianceRenderer(torch.nn.Module):
     def __init__(
         self,
-        tsampler: sampling.RayStepSampler = None,
+        tsampler: protocols.RayStepSampler = None,
         ray_ext_factor: float = 10.0,
     ) -> None:
         super().__init__()
         self.ray_ext_factor = ray_ext_factor
-        self.tsampler = tsampler or sampling.StratifiedRayStepSampler(256)
+        self.tsampler = tsampler or StratifiedRayStepSampler()
 
     def trace_uv(
         self,
-        vol: volumes.Volume,
-        cam: geometric.MultiViewCamera,
+        vol: Volume,
+        cam: MultiViewCamera,
         uv: torch.Tensor,
-        tsampler: Optional[sampling.RayStepSampler] = None,
+        tsampler: Optional[protocols.RayStepSampler] = None,
         which_maps: Optional[set[MAPKEY]] = None,
     ) -> dict[MAPKEY, Optional[torch.Tensor]]:
         """Render various radiance properties for specific pixel coordinates
@@ -58,7 +62,7 @@ class RadianceRenderer(torch.nn.Module):
         if "depth" in which_maps:
             result["depth"] = uv.new_zeros(bshape + (1,))
 
-        rays = geometric.RayBundle.make_world_rays(cam, uv)
+        rays = RayBundle.make_world_rays(cam, uv)
         rays = rays.intersect_aabb(vol.aabb)
         active_mask = rays.active_mask()
         active_rays = rays.filter_by_mask(active_mask)
@@ -109,9 +113,9 @@ class RadianceRenderer(torch.nn.Module):
 
     def trace_maps(
         self,
-        vol: volumes.Volume,
-        cam: geometric.MultiViewCamera,
-        tsampler: Optional[sampling.RayStepSampler] = None,
+        vol: Volume,
+        cam: MultiViewCamera,
+        tsampler: Optional[protocols.RayStepSampler] = None,
         which_maps: Optional[set[MAPKEY]] = None,
         n_rays_parallel: int = 2**13,
     ) -> dict[MAPKEY, Optional[torch.Tensor]]:
@@ -132,8 +136,13 @@ class RadianceRenderer(torch.nn.Module):
             which_maps = {"color", "alpha"}
         tsampler = tsampler or self.tsampler
 
-        gen = sampling.generate_sequential_uv_samples(
-            camera=cam, image=None, n_samples_per_cam=n_rays_parallel // cam.n_views
+        gen = functional.generate_sequential_uv_samples(
+            uv_size=cam.size,
+            n_views=cam.n_views,
+            image=None,
+            n_samples_per_view=n_rays_parallel // cam.n_views,
+            dtype=cam.focal_length.dtype,
+            device=cam.focal_length.device,
         )
 
         parts = []
@@ -157,9 +166,9 @@ class RadianceRenderer(torch.nn.Module):
 
     def trace_rgba(
         self,
-        vol: volumes.Volume,
-        cam: geometric.MultiViewCamera,
-        tsampler: Optional[sampling.RayStepSampler] = None,
+        vol: Volume,
+        cam: MultiViewCamera,
+        tsampler: Optional[protocols.RayStepSampler] = None,
         use_amp: bool = True,
         n_rays_parallel: int = 2**13,
     ) -> torch.Tensor:
@@ -194,5 +203,7 @@ class RadianceRenderer(torch.nn.Module):
 
 RadianceRendererConf = config.build_conf(
     RadianceRenderer,
-    tsampler=sampling.StratifiedRayStepSamplerConf(256),
+    tsampler=StratifiedRayStepSamplerConf(),
 )
+
+__all__ = ["RadianceRenderer", "RadianceRendererConf"]

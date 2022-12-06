@@ -1,11 +1,13 @@
-import torch
 from typing import Optional
+import torch
 
-from . import filtering
-from . import functional
-from . import config
-from . import radiance
-from . import geometric
+from .. import functional
+from .. import config
+from . import protocols
+
+from .nerf import NeRFConf
+from .spatial_filters import BoundsFilter
+from .spatial_filters import OccupancyGridFilterConf
 
 
 class Volume(torch.nn.Module):
@@ -14,14 +16,14 @@ class Volume(torch.nn.Module):
     def __init__(
         self,
         aabb: torch.Tensor,
-        radiance_field: radiance.RadianceField,
-        spatial_filter: Optional[filtering.SpatialFilter] = None,
+        radiance_field: protocols.RadianceField,
+        spatial_filter: Optional[protocols.SpatialFilter] = None,
     ) -> None:
         super().__init__()
         self.register_buffer("aabb", aabb.float())
         self.aabb: torch.Tensor
         self.radiance_field = radiance_field
-        self.spatial_filter = spatial_filter or filtering.BoundsFilter()
+        self.spatial_filter = spatial_filter or BoundsFilter()
 
     def sample(
         self,
@@ -81,6 +83,11 @@ class Volume(torch.nn.Module):
 VolumeConf = config.build_conf(
     Volume,
     aabb=config.Vecs3Conf([(-1.0,) * 3, (1.0,) * 3]),
-    radiance_field=radiance.NeRFConf(),
-    spatial_filter=filtering.OccupancyGridFilterConf(),
+    radiance_field=NeRFConf(),
+    spatial_filter=OccupancyGridFilterConf(),
 )
+
+__all__ = [
+    "Volume",
+    "VolumeConf",
+]

@@ -1,25 +1,25 @@
-from typing import Iterator, Optional, Protocol
+from typing import Iterator, Optional, Union
 import torch
 import torch.nn.functional as F
 
-
-from . import geometric
-from . import functional
-from . import config
+from .geometric import make_multiview_grid
 
 
 def generate_random_uv_samples(
-    camera: geometric.MultiViewCamera,
+    uv_size: Union[tuple[int, int], torch.IntTensor],
+    n_views: int,
     image: Optional[torch.Tensor] = None,
-    n_samples_per_cam: Optional[int] = None,
+    n_samples_per_view: Optional[int] = None,
     subpixel: bool = True,
+    device: torch.device = None,
+    dtype: torch.dtype = None,
 ) -> Iterator[tuple[torch.Tensor, Optional[torch.Tensor]]]:
     """Generate random pixel samples.
     This methods acts as an infinite generator that samples
     `n_samples_per_cam` pixel coordinates per camera randomly
     from the image plane.
     Params:
-        camera: a batch of N perspective cameras
+        shape: a batch of N perspective cameras
         image: (N,C,H,W) image tensor with C feature channels
         n_samples_per_cam: number of samples from each camera to
             draw. If not specified, defaults to W.
@@ -28,10 +28,14 @@ def generate_random_uv_samples(
         uv: (N, n_samples_per_cam, 2) sampled coordinates
         uv_feature (N, n_samples_per_cam, C) samples features
     """
-    N = camera.n_views
-    M = n_samples_per_cam or camera.size[0].item()
+    N = n_views
+    M = n_samples_per_view or uv_size[0]
+    dtype = dtype or torch.float32
+    if torch.is_tensor(uv_size):
+        uv_size = tuple(uv_size.tolist())
 
-    uvn = camera.R.new_empty((N, M, 2))
+    uvn = torch.empty((N, M, 2), dtype=dtype, device=device)
+    uv_sizef = uvn.new_tensor(uv_size)
     # we actually sample from (-1, +1) to avoid issues
     # when rounding to subpixel coords. -0.5 would get mapped to -1.
     bounds = 1.0 - 1e-7
@@ -40,7 +44,7 @@ def generate_random_uv_samples(
         # The following code samples within the valid image area. We treat
         # pixels as squares and integer pixel coords as centers of pixels.
         uvn.uniform_(-bounds, bounds)
-        uv = (uvn + 1.0) * camera.size[None, None, :] * 0.5 - 0.5
+        uv = (uvn + 1.0) * uv_sizef[None, None, :] * 0.5 - 0.5
 
         if not subpixel:
             # The folloing may create duplicate pixel coords
@@ -58,10 +62,13 @@ def generate_random_uv_samples(
 
 
 def generate_randperm_uv_samples(
-    camera: geometric.MultiViewCamera,
+    uv_size: Union[tuple[int, int], torch.IntTensor],
+    n_views: int,
     image: Optional[torch.Tensor] = None,
-    n_samples_per_cam: Optional[int] = None,
+    n_samples_per_view: Optional[int] = None,
     subpixel: bool = True,
+    device: torch.device = None,
+    dtype: torch.dtype = None,
 ) -> Iterator[tuple[torch.Tensor, Optional[torch.Tensor]]]:
     """Generate random pixel samples.
 
@@ -81,15 +88,22 @@ def generate_randperm_uv_samples(
         uv: (N, n_samples_per_cam, 2) sampled coordinates
         uv_feature (N, n_samples_per_cam, C) samples features
     """
-    N = camera.n_views
-    M = n_samples_per_cam or camera.size[0].item()
+    N = n_views
+    M = n_samples_per_view or uv_size[0]
+    if torch.is_tensor(uv_size):
+        uv_size = tuple(uv_size.tolist())
 
-    uvgrid = camera.make_uv_grid()  # (N,H,W,2)
+    dtype = dtype or torch.float32
+
+    uvgrid = make_multiview_grid(
+        n_views, uv_size, device=device, dtype=dtype
+    )  # (N,H,W,2)
     uvgrid = uvgrid.view(N, -1, 2)  # (N,L,2)
+    uv_sizef = uvgrid.new_tensor(uv_size)
     L = uvgrid.shape[1]
 
     if subpixel:
-        noise = camera.R.new_empty((N, M, 2))
+        noise = uvgrid.new_empty((N, M, 2), dtype=dtype)
         bounds = (1 - 1e-7) * 0.5
 
     pos = 0
@@ -120,7 +134,7 @@ def generate_randperm_uv_samples(
         # Compute color features
         feature_uv = None
         if image is not None:
-            uvn = (uv + 0.5) * 2 / camera.size[None, None, :] - 1.0
+            uvn = (uv + 0.5) * 2 / uv_sizef[None, None, :] - 1.0
             feature_uv = _sample_features_uv(
                 camera_images=image, camera_uvs=uvn, subpixel=subpixel
             )
@@ -130,10 +144,13 @@ def generate_randperm_uv_samples(
 
 
 def generate_sequential_uv_samples(
-    camera: geometric.MultiViewCamera,
+    uv_size: Union[tuple[int, int], torch.Tensor],
+    n_views: int,
     image: Optional[torch.Tensor] = None,
-    n_samples_per_cam: Optional[int] = None,
+    n_samples_per_view: Optional[int] = None,
     n_passes: int = 1,
+    device: torch.device = None,
+    dtype: torch.dtype = None,
 ) -> Iterator[tuple[torch.Tensor, Optional[torch.Tensor]]]:
     """Generate sequential pixel samples.
     This methods acts as a generator, generating `n_samples_per_cam`
@@ -148,12 +165,18 @@ def generate_sequential_uv_samples(
         uv: (N, n_samples_per_cam, 2) sampled coordinates (row-major)
         uv_feature (N, n_samples_per_cam, C) samples features (row-major)
     """
-    # TODO: assumes same image size currently
-    N = camera.n_views
-    M = n_samples_per_cam or camera.size[0].item()
+    N = n_views
+    M = n_samples_per_view or uv_size[0]
+    dtype = dtype or torch.float32
+    if torch.is_tensor(uv_size):
+        uv_size = tuple(uv_size.tolist())
 
-    uv_grid = camera.make_uv_grid()
-    uvn_grid = (uv_grid + 0.5) * 2 / camera.size.view(1, 1, 1, 2) - 1.0
+    uv_grid = make_multiview_grid(
+        n_views, uv_size, device=device, dtype=dtype
+    )  # (N,H,W,2)
+    uv_sizef = uv_grid.new_tensor(uv_size)
+
+    uvn_grid = (uv_grid + 0.5) * 2 / uv_sizef.view(1, 1, 1, 2) - 1.0
     for _ in range(n_passes):
         for uv, uvn in zip(
             uv_grid.view(N, -1, 2).split(M, 1),
@@ -165,39 +188,6 @@ def generate_sequential_uv_samples(
                     camera_images=image, camera_uvs=uvn, subpixel=False
                 )
             yield uv, feature_uv
-
-
-class RayStepSampler(Protocol):
-    """Protocol for sampling timestep values along rays.
-
-    Note that ray directions are not normalized.
-
-    """
-
-    def __call__(self, rays: geometric.RayBundle) -> torch.Tensor:
-        """Sample timestep values
-
-        Params:
-            rays: (N,...) bundle of rays
-
-        Returns:
-            ts: (T,N,...,1) timestep samples for each ray.
-        """
-        ...
-
-
-class StratifiedRayStepSampler(torch.nn.Module, RayStepSampler):
-    def __init__(self, n_samples: int = 128) -> None:
-        super().__init__()
-        self.n_samples = n_samples
-
-    def __call__(self, rays: geometric.RayBundle) -> torch.Tensor:
-        return functional.sample_ray_step_stratified(
-            rays.tnear, rays.tfar, self.n_samples
-        )
-
-
-StratifiedRayStepSamplerConf = config.build_conf(StratifiedRayStepSampler)
 
 
 def _sample_features_uv(
@@ -218,3 +208,10 @@ def _sample_features_uv(
         .permute(0, 2, 1)
     )
     return features_uv
+
+
+__all__ = [
+    "generate_random_uv_samples",
+    "generate_randperm_uv_samples",
+    "generate_sequential_uv_samples",
+]

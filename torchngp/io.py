@@ -8,7 +8,8 @@ import torch
 import torch.nn.functional as F
 from PIL import Image
 
-from . import config, geometric
+from . import config
+from . import modules
 
 _logger = logging.getLogger("torchngp")
 
@@ -21,7 +22,7 @@ def _load_json(path: str) -> dict:
     return data
 
 
-def cam_from_json(path: str, slice: str = None) -> geometric.MultiViewCamera:
+def cam_from_json(path: str, slice: str = None) -> modules.MultiViewCamera:
     """Loads camera configuration information from a transforms.json file.
 
     Params:
@@ -113,7 +114,7 @@ def cam_from_json(path: str, slice: str = None) -> geometric.MultiViewCamera:
         f" {n_skipped} poses and fixed {n_fixed} poses."
     )
 
-    return geometric.MultiViewCamera(
+    return modules.MultiViewCamera(
         focal_length=(fl_x, fl_y),
         principal_point=(cx, cy),
         size=(W, H),
@@ -168,44 +169,3 @@ def aabb_from_json(path: str) -> torch.Tensor:
 
 AabbFromJsonConf = config.build_conf(aabb_from_json)
 CamFromJsonConf = config.build_conf(cam_from_json)
-
-if __name__ == "__main__":
-    pass
-    # print(aabb_from_json("data/lego/transforms_train.json"))
-    # print(cam_from_json("data/lego/transforms_train.json", slice="[0,1,2,2]"))
-
-    # from hydra_zen import make_custom_builds_fn, make_config, to_yaml, instantiate
-    # from omegaconf import OmegaConf
-
-    # builds = make_custom_builds_fn(populate_full_signature=True)
-
-    # # AabbFromJsonConf = builds(aabb_from_json)
-    # # CamFromJsonConf = builds(cam_from_json)
-
-    # Conf = make_config(
-    #     data={
-    #         "cameras": {
-    #             "train_camera": CamFromJson2Conf(
-    #                 path="data/lego/transforms_train.json", slice=":3"
-    #             ),
-    #             "val_camera": CamFromJson2Conf(
-    #                 path="data/lego/transforms_train.json", slice="-3:"
-    #             ),
-    #         },
-    #     },
-    #     hugo={
-    #         "cam": "${data.cameras.train_camera}",
-    #     },
-    # )
-    # cfg = Conf()
-    # print(to_yaml(cfg, resolve=True))
-    # cfg2 = OmegaConf.structured(cfg)  # dictconfig
-
-    # OmegaConf.resolve(cfg2)
-    # print(cfg2)
-    # # print(to_yaml(cfg))
-    # instcfg = instantiate(cfg2.hugo)
-
-    # # # print(instcfg.data.cameras.train_camera.focal_length.data_ptr())
-    # # print(instcfg.cam.focal_length.data_ptr())
-    # # print(to_yaml(Conf))

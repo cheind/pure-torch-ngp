@@ -33,14 +33,14 @@ def make_grid(
 
 def make_multiview_grid(
     n_views: int,
-    size: tuple[int, int],
+    size: Union[tuple[int, int], torch.Tensor],
     device: torch.device = None,
     dtype: torch.dtype = None,
 ):
     """Generates uv-pixel grid coordinates for n-views.
 
     Params:
-        shape: shape of grid to generate coordinates for
+        size: size (W,H) of grid to generate coordinates for
         indexing: order of coordinates in last-dimension
         device: device to put it on
         dtype: dtype to return
@@ -50,6 +50,9 @@ def make_multiview_grid(
         uv: (N,H,W,2) tensor of grid coordinates using
             'xy' indexing.
     """
+    assert len(size) == 2
+    if torch.is_tensor(size):
+        size = tuple(size.tolist())
     uv = (
         make_grid(
             shape=size[::-1],

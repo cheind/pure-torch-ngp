@@ -1,7 +1,7 @@
-_target_: torchngp.volumes.Volume
+_target_: torchngp.modules.Volume
 aabb: "${data.aabb}"
 radiance_field:
-    _target_: torchngp.radiance.NeRF
+    _target_: torchngp.modules.NeRF
     n_colors: 3
     n_hidden: 64
     n_encodings_log2: 18
@@ -12,7 +12,7 @@ radiance_field:
     max_res_dense: 256
     is_hdr: false
 spatial_filter:
-    _target_: torchngp.filtering.OccupancyGridFilter
+    _target_: torchngp.modules.OccupancyGridFilter
     res: 128
     density_initial: 0.04
     density_threshold: 0.01
