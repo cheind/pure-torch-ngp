@@ -79,49 +79,6 @@ class MultiViewDataset(torch.utils.data.IterableDataset):
         return int(math.ceil(self.n_pixels_per_cam / self.n_samples_per_view))
 
 
-def create_fwd_bwd_closure(
-    vol: volumes.Volume,
-    renderer: rendering.RadianceRenderer,
-    tsampler: Optional[sampling.RayStepSampler],
-    scaler: torch.cuda.amp.GradScaler,
-    n_acc_steps: int,
-):
-    # https://pytorch.org/docs/stable/notes/amp_examples.html#gradient-accumulation
-    def run_fwd_bwd(
-        cam: geometric.MultiViewCamera, uv: torch.Tensor, rgba: torch.Tensor
-    ):
-        B, N, M, C = rgba.shape
-        maps = {"color", "alpha"}
-
-        with torch.cuda.amp.autocast(enabled=scaler.is_enabled()):
-            uv = uv.permute(1, 0, 2, 3).reshape(N, B * M, 2)
-            rgba = rgba.permute(1, 0, 2, 3).reshape(N, B * M, C)
-            rgb, alpha = rgba[..., :3], rgba[..., 3:4]
-            noise = torch.empty_like(rgb).uniform_(0.0, 1.0)
-            # Dynamic noise background with alpha composition
-            # Encourages the model to learn zero density in empty regions
-            # Dynamic background is also combined with prediced colors, so
-            # model does not have to learn randomness.
-            gt_rgb_mixed = rgb * alpha + noise * (1 - alpha)
-
-            # Predict
-            pred_maps = renderer.trace_uv(vol, cam, uv, tsampler, which_maps=maps)
-            pred_rgb, pred_alpha = pred_maps["color"], pred_maps["alpha"]
-            # Mix
-            pred_rgb_mixed = pred_rgb * pred_alpha + noise * (1 - pred_alpha)
-
-            # Loss normalized by number of accumulation steps before
-            # update
-            loss = F.smooth_l1_loss(pred_rgb_mixed, gt_rgb_mixed)
-            loss = loss / n_acc_steps
-
-        # Scale the loss
-        scaler.scale(loss).backward()
-        return loss
-
-    return run_fwd_bwd
-
-
 class TrainingsCallback(Protocol):
     def after_training_step(self, trainer: "NeRFTrainer"):
         pass
@@ -202,9 +159,7 @@ class NeRFTrainer:
         scaler = torch.cuda.amp.GradScaler(enabled=self.use_amp)
 
         # Setup closure for gradient accumulation
-        fwd_bwd_fn = create_fwd_bwd_closure(
-            self.volume, self.train_renderer, None, scaler, n_acc_steps=self.n_acc_steps
-        )
+        fwd_bwd_fn = self._create_fwd_bwd_closure(scaler)
 
         # Enter main loop
         self.pbar_postfix = {"loss": 0.0}
@@ -317,6 +272,44 @@ class NeRFTrainer:
         )
 
         return opt, sched
+
+    def _create_fwd_bwd_closure(self, scaler: torch.cuda.amp.GradScaler):
+        # https://pytorch.org/docs/stable/notes/amp_examples.html#gradient-accumulation
+        def run_fwd_bwd(
+            cam: geometric.MultiViewCamera, uv: torch.Tensor, rgba: torch.Tensor
+        ):
+            B, N, M, C = rgba.shape
+            maps = {"color", "alpha"}
+
+            with torch.cuda.amp.autocast(enabled=scaler.is_enabled()):
+                uv = uv.permute(1, 0, 2, 3).reshape(N, B * M, 2)
+                rgba = rgba.permute(1, 0, 2, 3).reshape(N, B * M, C)
+                rgb, alpha = rgba[..., :3], rgba[..., 3:4]
+                noise = torch.empty_like(rgb).uniform_(0.0, 1.0)
+                # Dynamic noise background with alpha composition
+                # Encourages the model to learn zero density in empty regions
+                # Dynamic background is also combined with prediced colors, so
+                # model does not have to learn randomness.
+                gt_rgb_mixed = rgb * alpha + noise * (1 - alpha)
+
+                # Predict
+                pred_maps = self.train_renderer.trace_uv(
+                    self.volume, cam, uv, tsampler=None, which_maps=maps
+                )
+                pred_rgb, pred_alpha = pred_maps["color"], pred_maps["alpha"]
+                # Mix
+                pred_rgb_mixed = pred_rgb * pred_alpha + noise * (1 - pred_alpha)
+
+                # Loss normalized by number of accumulation
+                # steps before update
+                loss = F.smooth_l1_loss(pred_rgb_mixed, gt_rgb_mixed)
+                loss = loss / self.n_acc_steps
+
+            # Scale the loss
+            scaler.scale(loss).backward()
+            return loss
+
+        return run_fwd_bwd
 
 
 NeRFTrainerConf = config.build_conf(NeRFTrainer)
