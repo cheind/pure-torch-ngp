@@ -3,7 +3,7 @@ import torch
 from torch.testing import assert_close
 import matplotlib as mpl
 
-from torchngp import modules, functional, helpers
+from torchngp import functional, helpers, modules
 
 
 class ColorGradientRadianceField(modules.RadianceField):

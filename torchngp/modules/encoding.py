@@ -10,7 +10,7 @@ import torch
 import torch.nn
 import torch.nn.functional as F
 
-from . import functional
+from .. import functional
 
 
 @dataclass
@@ -367,3 +367,6 @@ def _hash_ravel(x: torch.LongTensor, shape: tuple[int, ...]) -> torch.LongTensor
     strides = x.new_tensor(shape[::-1]).cumprod(0).roll(1, 0)
     strides[0] = 1
     return (x * strides.expand_as(x)).sum(-1)
+
+
+__all__ = ["MultiLevelHybridHashEncoding"]
