@@ -59,6 +59,7 @@ def sample_ray_fixed_step_stratified(
         ray_tnear: (N,...,1) ray start
         stepsize: step size
         n_samples: number of steps
+        noise_scale: scale of noise. If omitted, set to have the step size.
 
     Returns:
         tsamples: (n_bins,N,...,1)
