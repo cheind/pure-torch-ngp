@@ -1,10 +1,11 @@
 import copy
 import dataclasses
 import logging
-import time
 import math
-from typing import Optional, Protocol, Literal
+import time
 from itertools import islice
+from pathlib import Path
+from typing import Literal, Optional, Protocol
 
 import torch
 import torch.nn
@@ -12,14 +13,8 @@ import torch.nn.functional as F
 import torch.utils.data
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
-from pathlib import Path
 
-
-from . import (
-    modules,
-    config,
-    functional,
-)
+from . import config, functional, modules
 
 _logger = logging.getLogger("torchngp")
 
