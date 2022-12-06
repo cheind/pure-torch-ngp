@@ -10,15 +10,11 @@ from hydra.core.config_store import ConfigStore
 from hydra_zen import instantiate, make_config, load_from_yaml, ZenField as zf, builds
 from omegaconf import MISSING, DictConfig, OmegaConf
 
-from torchngp import (
-    volumes,
-    rendering,
-    training,
-    geometric,
-    plotting,
-    functional,
-)
-from torchngp.functional import uv_sampling
+from torchngp import modules
+from torchngp import functional
+from torchngp import config
+from torchngp import helpers
+from torchngp import plotting
 
 _logger = logging.getLogger("torchngp")
 logging.getLogger("PIL").setLevel(logging.WARNING)
@@ -33,13 +29,14 @@ class OutputOptions:
     fname: str = "image_{idx:03d}.png"
 
 
+SphericalPosesConf = config.build_conf(helpers.spherical_poses)
 OutputOptionsConf = builds(OutputOptions, populate_full_signature=True)
 
 RenderTaskConf = make_config(
     ckpt=zf(str, MISSING),
     output=OutputOptionsConf(),
     n_rays_parallel_log2=zf(int, 14),
-    poses=geometric.SphericalPosesConf(
+    poses=SphericalPosesConf(
         20,
         theta_range=(0, 2 * np.pi),
         phi_range=(70 / 180 * np.pi, 70 / 180 * np.pi),
@@ -47,14 +44,14 @@ RenderTaskConf = make_config(
         center=(0.0, 0.0, 0.0),
         inclusive=False,
     ),
-    camera=geometric.MultiViewCameraConf(
+    camera=modules.MultiViewCameraConf(
         focal_length=(1000, 1000),
         principal_point=(255.5, 255.5),
         size=(512, 512),
         poses="${poses}",
     ),
-    renderer=rendering.RadianceRendererConf(
-        tsampler=uv_sampling.StratifiedRayStepSamplerConf(512)
+    renderer=modules.RadianceRendererConf(
+        tsampler=modules.StratifiedRayStepSamplerConf(512)
     ),
 )
 cs = ConfigStore.instance()
@@ -71,11 +68,11 @@ def render_task(cfg: DictConfig):
     train_cfg = load_from_yaml(io.StringIO(ckpt_data["config"]))
 
     dev = torch.device("cuda") if torch.cuda.is_available else torch.device("cpu")
-    vol: volumes.Volume = instantiate(train_cfg.volume)
+    vol: modules.Volume = instantiate(train_cfg.volume)
     vol.load_state_dict(ckpt_data["volume"])
     vol.to(dev).eval()
-    rnd: rendering.RadianceRenderer = instantiate(cfg.renderer).to(dev)
-    cam: geometric.MultiViewCamera = instantiate(cfg.camera).to(dev)
+    rnd: modules.RadianceRenderer = instantiate(cfg.renderer).to(dev)
+    cam: modules.MultiViewCamera = instantiate(cfg.camera).to(dev)
 
     ax = plotting.plot_world(vol.aabb, cam)
     # plt.show()
