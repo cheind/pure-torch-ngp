@@ -2,7 +2,7 @@ from typing import Protocol, Optional, TYPE_CHECKING
 import torch
 
 if TYPE_CHECKING:
-    from xmodules import RayBundle
+    from .ray_bundle import RayBundle
 
 
 class RadianceField(Protocol):
