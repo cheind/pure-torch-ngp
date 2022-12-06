@@ -16,8 +16,8 @@ reconstruction without this problem is provided
 """
 
 from torchngp import functional
-from torchngp import encoding
 from torchngp import modules
+from torchngp.modules.encoding import _bilinear_params_2d
 import torch
 from itertools import islice
 
@@ -41,7 +41,7 @@ def reconstruct(
     for uv, rgba in islice(gen, batches):
         rgba = rgba[0]
         uv = uv[0]
-        corners, weights, mask = encoding._bilinear_params_2d(uv, shape=(H, W))
+        corners, weights, mask = _bilinear_params_2d(uv, shape=(H, W))
         # Fast, but collisions leading to noticably visual artefacts
         mask = mask.any(-1)
         c = corners[mask]
