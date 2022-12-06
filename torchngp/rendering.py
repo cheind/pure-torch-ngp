@@ -76,9 +76,7 @@ class RadianceRenderer(torch.nn.Module):
         if "color" in which_maps:
             ynm = active_rays.encode_raydir()
             # ynm (N,...,16) -> (T,N,...,16)
-            print(ynm.shape)
             ynm = ynm.unsqueeze(0).expand(ts.shape[0], *ynm.shape)
-            print(ynm.shape)
             ts_density, ts_color = vol.sample(
                 xyz,
                 ynm=ynm,
