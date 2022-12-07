@@ -48,16 +48,14 @@ def plot_ray(
         # Initial samples
         ts = torch.linspace(tnear.item(), tfar.item(), 20).reshape(20, 1, 1)
         _, density = sample_vol(ts, density_mode=density_mode, c=c)
-        ts_weights = functional.integrate_timesteps(
-            density, ts, dnorm, tfinal=tfar + 1e-2
-        )
+        ts_weights = functional.integrate_timesteps(density, ts, dnorm)
         # Informed sampling
         ts = functional.sample_ray_step_informed(
             ts, tnear, tfar, ts_weights, n_samples=50
         )
 
     color, density = sample_vol(ts, density_mode=density_mode, c=c)
-    ts_weights = functional.integrate_timesteps(density, ts, dnorm, tfinal=tfar + 1e-2)
+    ts_weights = functional.integrate_timesteps(density, ts, dnorm)
     out_color = functional.color_map(color[..., :3], ts_weights, per_timestep=True)
     out_transm = 1.0 - functional.alpha_map(ts_weights, per_timestep=True)
 
