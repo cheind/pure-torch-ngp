@@ -17,13 +17,11 @@ MAPKEY = Literal["color", "depth", "alpha"]
 
 class RadianceRenderer(torch.nn.Module):
     def __init__(
-        self,
-        tsampler: protocols.RayStepSampler = None,
-        ray_ext_factor: float = 10.0,
+        self, tsampler: protocols.RayStepSampler = None, tfinal_scale: float = 1e5
     ) -> None:
         super().__init__()
-        self.ray_ext_factor = ray_ext_factor
         self.tsampler = tsampler or StratifiedRayStepSampler()
+        self.tfinal_scale = tfinal_scale
 
     def trace_uv(
         self,
@@ -98,7 +96,7 @@ class RadianceRenderer(torch.nn.Module):
             ts_density,
             ts,
             active_rays.dnorm,
-            tfinal=active_rays.tfar * self.ray_ext_factor,
+            tfinal=active_rays.tfar * self.tfinal_scale,
         )
 
         # Compute result maps
