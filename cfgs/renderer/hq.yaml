@@ -2,11 +2,10 @@ train_renderer:
     _target_: torchngp.modules.RadianceRenderer
     tsampler:
         _target_: torchngp.modules.StratifiedRayStepSampler
-        n_samples: 1024
-    ray_ext_factor: 10.0
+        n_samples: 512
 val_renderer:
     _target_: torchngp.modules.RadianceRenderer
     tsampler:
-        _target_: torchngp.modules.StratifiedRayStepSampler
+        _target_: torchngp.modules.InformedRayStepSampler
+        n_coarse_samples: 256
         n_samples: 1024
-    ray_ext_factor: 10.0
