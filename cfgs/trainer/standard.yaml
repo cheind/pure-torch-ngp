@@ -25,8 +25,8 @@ optimizer:
     decay_density: 1.0e-06
     decay_color: 1.0e-06
     sched_factor: 0.75
-    sched_patience: 50
-    sched_minlr: 5.0e-5
+    sched_patience: 100
+    sched_minlr: 5e-4
 dev: null
 callbacks:
     - _target_: torchngp.training.UpdateSpatialFilterCallback
