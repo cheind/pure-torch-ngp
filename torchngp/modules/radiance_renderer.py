@@ -17,11 +17,13 @@ MAPKEY = Literal["color", "depth", "alpha"]
 
 class RadianceRenderer(torch.nn.Module):
     def __init__(
-        self, tsampler: protocols.RayStepSampler = None, tfinal_scale: float = 1e5
+        self,
+        tsampler: protocols.RayStepSampler = None,
+        tfar_scale: float = 1.0,
     ) -> None:
         super().__init__()
         self.tsampler = tsampler or StratifiedRayStepSampler()
-        self.tfinal_scale = tfinal_scale
+        self.tfar_scale = tfar_scale
 
     def trace_uv(
         self,
@@ -92,11 +94,12 @@ class RadianceRenderer(torch.nn.Module):
             )
 
         # Compute integration weights
+
         ts_weights = functional.integrate_timesteps(
             ts_density,
             ts,
             active_rays.dnorm,
-            tfinal=active_rays.tfar * self.tfinal_scale,
+            tfinal=active_rays.tfar * self.tfar_scale,
         )
 
         # Compute result maps
