@@ -4,7 +4,7 @@ radiance_field:
     _target_: torchngp.modules.NeRF
     n_colors: 3
     n_hidden: 64
-    n_encodings_log2: 18
+    n_encodings_log2: 19
     n_levels: 16
     n_color_cond: 16
     min_res: 16
@@ -17,6 +17,6 @@ spatial_filter:
     density_initial: 0.04
     density_threshold: 0.01
     stochastic_test: true
-    update_decay: 0.7
+    update_decay: 0.8
     update_noise_scale: null
-    update_selection_rate: 0.25
+    update_selection_rate: 0.5
