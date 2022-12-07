@@ -11,6 +11,49 @@ def batch_linspace(start: torch.Tensor, end: torch.Tensor, n: int):
 
 
 def sample_ray_step_stratified(
+    ray_tnear: torch.Tensor,
+    ray_tfar: torch.Tensor,
+    n_samples: int,
+    noise_scale: float = 1.0,
+) -> torch.Tensor:
+    """Creates stratified ray step random samples between tnear/tfar.
+
+    The returned samples per ray are guaranteed to be sorted
+    in step ascending order.
+
+    Params:
+        ray_tnear: (N,...,1) ray start
+        ray_tfar: (N,...,1) ray ends
+        n_bins: number of strata
+
+    Returns:
+        tsamples: (n_samples,N,...,1)
+
+    Based on:
+        NeRF: Representing Scenes as
+        Neural Radiance Fields for View Synthesis
+        https://arxiv.org/pdf/2003.08934.pdf
+        https://en.wikipedia.org/wiki/Stratified_sampling
+    """
+    dev = ray_tnear.device
+    dtype = ray_tnear.dtype
+
+    tnear = ray_tnear.squeeze(-1)  # (N,...)
+    tfar = ray_tfar.squeeze(-1)
+
+    t = torch.linspace(0.0, 1.0, n_samples, dtype=dtype, device=dev)
+    t = t.view(-1, *(1,) * tnear.ndim)  # (T,...)
+    z = tnear[None] * (1.0 - t) + tfar[None] * t  # (T,N,...)
+
+    if noise_scale > 0.0:
+        mid = (z[1:] + z[:-1]) * 0.5
+        lower = torch.cat((z[:1], mid), 0)
+        upper = torch.cat((mid, z[-1:]), 0)
+        z = lower + (upper - lower) * torch.rand_like(z) * noise_scale
+    return z.unsqueeze(-1)
+
+
+def sample_ray_step_stratified2(
     ray_tnear: torch.Tensor, ray_tfar: torch.Tensor, n_samples: int
 ) -> torch.Tensor:
     """Creates stratified ray step random samples between tnear/tfar.

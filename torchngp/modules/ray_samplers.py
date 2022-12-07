@@ -11,14 +11,15 @@ from .volume import Volume
 
 
 class StratifiedRayStepSampler(torch.nn.Module, protocols.RayStepSampler):
-    def __init__(self, n_samples: int = 256) -> None:
+    def __init__(self, n_samples: int = 256, noise_scale: float = 1.0) -> None:
         super().__init__()
         self.n_samples = n_samples
+        self.noise_scale = noise_scale
 
     def __call__(self, rays: RayBundle, vol: Optional[Volume]) -> torch.Tensor:
         del vol
         return functional.sample_ray_step_stratified(
-            rays.tnear, rays.tfar, self.n_samples
+            rays.tnear, rays.tfar, self.n_samples, noise_scale=self.noise_scale
         )
 
 
