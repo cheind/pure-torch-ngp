@@ -2,6 +2,14 @@ import torch
 import torch.distributions as D
 
 
+def batch_linspace(start: torch.Tensor, end: torch.Tensor, n: int):
+    dev = start.device
+    dtype = start.dtype
+    steps = torch.arange(n, dtype=dtype, device=dev) / (n - 1)
+    steps = steps.view(-1, *(1,) * start.ndim)
+    return start[None] + steps * (end - start)[None]
+
+
 def sample_ray_step_stratified(
     ray_tnear: torch.Tensor, ray_tfar: torch.Tensor, n_samples: int
 ) -> torch.Tensor:
@@ -182,8 +190,13 @@ def sample_ray_step_informed(
     low = low.clamp(0, T - 2)  # we have 1 less piecwise lines than input samples
     low = low.unsqueeze(-1).expand(low.shape + (3,))  # (N,...,n_samples,3)
     uline = torch.gather(lines, dim=-2, index=low)  # (N,...,n_samples,3)
-    t = -(uline[..., 1] * u + uline[..., 2]) / (uline[..., 0])  # (N,...,n_samples)
+    t = -(uline[..., 1] * u + uline[..., 2]) / (
+        uline[..., 0] + eps
+    )  # (N,...,n_samples) TODO: eps probably not fixes everything? sprinkles?
     t = t.clamp(tnear, tfar).movedim(-1, 0).unsqueeze(-1).contiguous()  # (T,N,...,1)
+
+    if torch.isnan(t).any():
+        print("t not finite")
 
     return t
 
@@ -192,4 +205,5 @@ __all__ = [
     "sample_ray_step_stratified",
     "sample_ray_fixed_step_stratified",
     "sample_ray_step_informed",
+    "batch_linspace",
 ]
