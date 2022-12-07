@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 import torch
 
 
@@ -24,7 +24,35 @@ class StratifiedRayStepSampler(torch.nn.Module, protocols.RayStepSampler):
 
 StratifiedRayStepSamplerConf = config.build_conf(StratifiedRayStepSampler)
 
+
+class InformedRayStepSampler(torch.nn.Module, protocols.RayStepSampler):
+    def __init__(self, n_samples: int = 256, n_coarse_samples: int = 32) -> None:
+        super().__init__()
+        self.n_samples = n_samples
+        self.n_coarse_samples = n_coarse_samples
+
+    @torch.no_grad()
+    def __call__(self, rays: RayBundle, vol: Optional[Volume]) -> torch.Tensor:
+        ts_coarse = functional.batch_linspace(
+            rays.tnear, rays.tfar, self.n_coarse_samples
+        )  # (M,N,...,1)
+        density, _ = vol.sample(rays(ts_coarse), ynm=None, return_color=False)
+        coarse_weights = functional.integrate_timesteps(density, ts_coarse, rays.dnorm)
+        ts_informed = functional.sample_ray_step_informed(
+            ts=ts_coarse,
+            tnear=rays.tnear,
+            tfar=rays.tfar,
+            weights=coarse_weights,
+            n_samples=self.n_samples,
+        )
+        return ts_informed
+
+
+InformedRayStepSamplerConf = config.build_conf(InformedRayStepSampler)
+
 __all__ = [
     "StratifiedRayStepSampler",
     "StratifiedRayStepSamplerConf",
+    "InformedRayStepSampler",
+    "InformedRayStepSamplerConf",
 ]
