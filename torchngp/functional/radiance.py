@@ -8,7 +8,7 @@ def integrate_timesteps(
     sigma: torch.Tensor,
     ts: torch.Tensor,
     dnorm: torch.Tensor,
-    tfinal: Union[float, torch.Tensor] = 1e7,
+    tfinal: Union[float, torch.Tensor] = 1e5,
 ):
     """Computes the timestep weights for multiple rays.
 
@@ -25,7 +25,8 @@ def integrate_timesteps(
         ts: (T,N,...,1) ray timestep values.
         dnorm: (N,...,1) ray direction norms. Used for conversion of timestep units
             to real world units.
-        tfinal: float or (N,...,1) tensor of one beyond last timestep values.
+        tfinal: float or (N,...,1) tensor distance from the last integration
+            time. Usually close to infinity
     Returns:
         weights: (T,N,...,1) weights for each timestep.
 
