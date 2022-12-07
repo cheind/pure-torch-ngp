@@ -45,11 +45,13 @@ def plot_ray(
     elif sampling_mode == "stratified":
         ts = functional.sample_ray_step_stratified(tnear, tfar, 50)
     elif sampling_mode == "informed":
-        ts = functional.sample_ray_step_stratified(tnear, tfar, 20)
+        # Initial samples
+        ts = torch.linspace(tnear.item(), tfar.item(), 20).reshape(20, 1, 1)
         _, density = sample_vol(ts, density_mode=density_mode, c=c)
         ts_weights = functional.integrate_timesteps(
             density, ts, dnorm, tfinal=tfar + 1e-2
         )
+        # Informed sampling
         ts = functional.sample_ray_step_informed(
             ts, tnear, tfar, ts_weights, n_samples=50
         )
@@ -78,11 +80,18 @@ def plot_ray(
         label="density",
     )
 
+    final_color = out_color[-1].view(-1)
     ax.imshow(
-        out_color[-1].view(1, 1, 3),
-        extent=(ts[0, 0, 0] - tnear[0, 0], ts[0, 0, 0] - tnear[0, 0] + 0.1, 0.5, 0.6),
+        final_color.view(1, 1, 3),
+        extent=(-0.05, -0.05 + 0.1, 0.5, 0.6),
     )
-    plt.text(0.01, 0.45, "final color")
+    plt.text(
+        -0.05,
+        0.45,
+        "final RGB:"
+        f" {final_color[0].item():.2f}|{final_color[1].item():.2f}|{final_color[2].item():.2f}",
+        fontsize=8,
+    )
     ax.scatter(
         shifted_ts,
         out_transm[:, 0],
@@ -118,11 +127,11 @@ def main():
     _ = plot_ray(density_mode="constant", c=10.0, sampling_mode="linear")
     _ = plot_ray(density_mode="constant", c=10.0, sampling_mode="stratified")
     _ = plot_ray(density_mode="constant", c=10.0, sampling_mode="informed")
-    # _ = plot_ray(density_mode="linear", c=1.0, sampling_mode="linear")
-    # _ = plot_ray(density_mode="linear", c=10.0, sampling_mode="linear")
-    # _ = plot_ray(density_mode="linear", c=10.0, sampling_mode="stratified")
-    # _ = plot_ray(density_mode="linear", c=10.0, sampling_mode="informed")
-    # _ = plot_ray(density_mode="linear", c=float("inf"), sampling_mode="linear")
+    _ = plot_ray(density_mode="linear", c=1.0, sampling_mode="linear")
+    _ = plot_ray(density_mode="linear", c=10.0, sampling_mode="linear")
+    _ = plot_ray(density_mode="linear", c=10.0, sampling_mode="stratified")
+    _ = plot_ray(density_mode="linear", c=10.0, sampling_mode="informed")
+    _ = plot_ray(density_mode="linear", c=float("inf"), sampling_mode="linear")
     plt.show()
 
 
