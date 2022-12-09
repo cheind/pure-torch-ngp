@@ -109,9 +109,10 @@ class NeRFTrainer:
     train_renderer: Optional[modules.RadianceRenderer] = None
     val_renderer: Optional[modules.RadianceRenderer] = None
     output_dir: Path = Path("./tmp")
-    train_max_time: float = 60 * 10
+    max_train_secs: Optional[float] = None
+    max_train_rays_log2: Optional[int] = 26  # ~ 74mio rays
     n_rays_batch_log2: int = 14
-    n_rays_parallel_log2: int = 14
+    n_rays_parallel_log2: int = 14  # gradient step accum.
     n_worker: int = 4
     use_amp: bool = True
     sample_uv_mode: str = "randperm"
@@ -124,6 +125,9 @@ class NeRFTrainer:
     n_rays_per_view: int = dataclasses.field(init=False)
 
     def __post_init__(self):
+        assert (
+            self.max_train_secs or self.max_train_rays_log2
+        ), "At least one of max_train_secs or max_train_rays_log2 must be specified"
         if self.dev is None:
             self.dev = (
                 torch.device("cuda")
@@ -175,11 +179,17 @@ class NeRFTrainer:
             with logging_redirect_tqdm():
                 pbar = tqdm(total=len(train_dl), mininterval=0.1, leave=False)
                 for uv, rgba in train_dl:
-                    if (
-                        time.time() - t_started - t_callbacks_elapsed
-                    ) > self.train_max_time:
+                    elapsed = time.time() - t_started - t_callbacks_elapsed
+                    n_rays_processed = self.global_step * self.n_rays_parallel
+                    if self.max_train_secs and elapsed > self.max_train_secs:
                         pbar.leave = True
-                        _logger.info("Max training time elapsed.")
+                        _logger.info("Max training time reached.")
+                        return
+                    if (
+                        self.max_train_rays_log2
+                        and n_rays_processed > 2**self.max_train_rays_log2
+                    ):
+                        _logger.info("Max number of training rays reached.")
                         return
                     uv = uv.to(self.dev)
                     rgba = rgba.to(self.dev)
@@ -203,7 +213,7 @@ class NeRFTrainer:
 
                     pbar.set_postfix(**self.pbar_postfix, refresh=False)
                     pbar.update(1)
-                    self.global_step += 1
+                    self.global_step += 1  # self.n_rays_parallel processed
 
     def _create_train_dataloader(
         self,
@@ -328,7 +338,7 @@ class IntervalTrainingsCallback(TrainingsCallback):
         if self.step_interval is None:
             self.step_interval = int(
                 math.ceil(
-                    max(1.0, 2**self.n_rays_interval_log2 / trainer.n_rays_batch)
+                    max(1.0, 2**self.n_rays_interval_log2 / trainer.n_rays_parallel)
                 )
             )
         if (trainer.global_step + 1) % self.step_interval == 0:
@@ -359,10 +369,10 @@ class ValidationCallback(IntervalTrainingsCallback):
     @torch.no_grad()
     def __call__(self, trainer: NeRFTrainer):
         if trainer.current_loss > self.min_loss:
+            _logger.info(
+                f"Skipping validation, loss {trainer.current_loss}>{self.min_loss}"
+            )
             return
-        _logger.info(
-            f"Validation pass after {trainer.global_step*trainer.n_rays_batch:,} rays"
-        )
         maps = trainer.val_renderer.trace(
             trainer.volume,
             trainer.val_camera,
@@ -384,16 +394,21 @@ class ValidationCallback(IntervalTrainingsCallback):
             trainer.output_dir / f"img_depth_val_step_{trainer.global_step}.png",
             individual=False,
         )
-
+        log_msg = (
+            "Validation pass after"
+            f" {trainer.global_step*trainer.n_rays_parallel:,} rays"
+        )
         if self.with_psnr:
             val_rgba = trainer.val_camera.load_images()
             if val_rgba.numel() > 0:
                 # TODO how does alpha pixel influence this result?
                 psnr, _ = functional.peak_signal_noise_ratio(rgba, val_rgba, 1.0)
                 trainer.pbar_postfix["psnr[dB]"] = psnr.mean().item()
-                _logger.info(f"psnr[dB]={psnr.mean().item():.2f}")
+                log_msg += f", psnr[dB]={psnr.mean().item():.2f}"
             else:
-                _logger.warn("PSNR computation failed: images not found.")
+                log_msg += ", PSNR computation failed: images not found"
+
+        _logger.info(log_msg)
 
 
 class ExportCallback(IntervalTrainingsCallback):
@@ -406,6 +421,9 @@ class ExportCallback(IntervalTrainingsCallback):
     @torch.no_grad()
     def __call__(self, trainer: NeRFTrainer):
         if trainer.current_loss > self.min_loss:
+            _logger.info(
+                f"Skipping model export, loss {trainer.current_loss}>{self.min_loss}"
+            )
             return
         path = trainer.output_dir / f"nerf_step_{trainer.global_step}.pth"
         _logger.info(f"Model saved to {path.as_posix()}")

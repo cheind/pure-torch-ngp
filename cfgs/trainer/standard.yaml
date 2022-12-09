@@ -6,7 +6,8 @@ val_camera: ${data.cameras.val_camera}
 train_renderer: ${renderer.train_renderer}
 val_renderer: ${renderer.val_renderer}
 output_dir: ${hydra:runtime.output_dir}
-train_max_time: 600.0
+max_train_secs: null
+max_train_rays_log2: 26 
 n_rays_batch_log2: 13
 n_rays_parallel_log2: 13
 n_worker: 4
