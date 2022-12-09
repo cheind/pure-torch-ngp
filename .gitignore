@@ -131,6 +131,7 @@ dmypy.json
 
 
 data/fox/
+data/lego/
 outputs/
 tmp/*
 !tmp/__keep__
