@@ -75,7 +75,7 @@ python -m torchngp.apps.nerf.render \
 
 ## More results
 
-![](etc/lego.gif)![](etc/suzanne.gif)
+![](etc/lego.gif)![](etc/chair.gif)
 
 ## Performance considerations
 
