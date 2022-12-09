@@ -363,19 +363,24 @@ class ValidationCallback(IntervalTrainingsCallback):
         _logger.info(
             f"Validation pass after {trainer.global_step*trainer.n_rays_batch:,} rays"
         )
-        rgbad = trainer.val_renderer.trace(
+        maps = trainer.val_renderer.trace(
             trainer.volume,
             trainer.val_camera,
             use_amp=trainer.use_amp,
             n_rays_parallel=self.n_rays_parallel,
         )
+        rgba = maps[:, :4]
+        depth = maps[:, 4:5]
         functional.save_image(
-            rgbad[:, :4],
+            rgba,
             trainer.output_dir / f"img_rgba_val_step_{trainer.global_step}.png",
             individual=False,
         )
+        depth = functional.scale_depth(
+            depth, trainer.val_camera.tnear, trainer.val_camera.tfar
+        )
         functional.save_image(
-            rgbad[:, 4:5],
+            depth,
             trainer.output_dir / f"img_depth_val_step_{trainer.global_step}.png",
             individual=False,
         )
