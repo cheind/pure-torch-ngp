@@ -258,8 +258,8 @@ def test_hash_ravel():
     ids_2d_numpy = np.ravel_multi_index(x[..., :2].T.numpy(), (W, H), order="F")
     ids_3d_numpy = np.ravel_multi_index(x.T.numpy(), (W, H, D), order="F")
 
-    ids_2d = _hash_ravel(x[..., :2], shape=(H, W))
-    ids_3d = _hash_ravel(x, shape=(D, H, W))
+    ids_2d = _hash_ravel(x[..., :2], shape=(H, W), n_encodings=H * W)
+    ids_3d = _hash_ravel(x, shape=(D, H, W), n_encodings=H * W * D)
     # print(ids_3d, ids_3d_numpy)
     assert_close(ids_2d, torch.tensor(ids_2d_numpy).long())
     assert_close(ids_3d, torch.tensor(ids_3d_numpy).long())

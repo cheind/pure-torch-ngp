@@ -3,8 +3,11 @@ train_renderer:
     tsampler:
         _target_: torchngp.modules.StratifiedRayStepSampler
         n_samples: 512
+    tfar_scale: 10
+
 val_renderer:
     _target_: torchngp.modules.RadianceRenderer
     tsampler:
         _target_: torchngp.modules.StratifiedRayStepSampler
         n_samples: 512
+    tfar_scale: 10

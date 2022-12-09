@@ -47,8 +47,9 @@ def sample_ray_step_stratified(
 
     if noise_scale > 0.0:
         mid = (z[1:] + z[:-1]) * 0.5
-        lower = torch.cat((z[:1], mid), 0)
-        upper = torch.cat((mid, z[-1:]), 0)
+        egdes = torch.cat((z[:1], mid, z[-1:]), 0)
+        lower = egdes[:-1]
+        upper = egdes[1:]
         z = lower + (upper - lower) * torch.rand_like(z) * noise_scale
     return z.unsqueeze(-1)
 

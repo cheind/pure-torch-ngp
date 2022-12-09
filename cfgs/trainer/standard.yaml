@@ -30,7 +30,7 @@ optimizer:
 dev: null
 callbacks:
     - _target_: torchngp.training.UpdateSpatialFilterCallback
-      n_rays_interval_log2: 15
+      n_rays_interval_log2: 17
     - _target_: torchngp.training.ValidationCallback
       n_rays_interval_log2: 22
       n_rays_parallel_log2: 14
