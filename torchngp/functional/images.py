@@ -101,14 +101,22 @@ def create_image_grid(rgba: torch.Tensor, padding: int = 2) -> torch.Tensor:
     return make_grid(rgba, padding=padding).unsqueeze(0)
 
 
+def scale_depth(depth: torch.Tensor, zmin: float, zmax: float) -> torch.Tensor:
+    depth = (depth - zmin) / (zmax - zmin)
+    return depth.clip(0, 1)
+
+
 def save_image(rgba: torch.Tensor, outpath: str, individual: bool = False):
     """Save images."""
+    C = rgba.shape[1]
     if not individual:
         rgba = create_image_grid(rgba, padding=0)
     rgba = (rgba * 255).to(torch.uint8).permute(0, 2, 3, 1).cpu().numpy()
     for idx, img in enumerate(rgba):
         outp = str(outpath).format(idx=idx)
-        Image.fromarray(img, mode="RGBA").save(outp)
+        if C == 1:
+            img = img[..., 0]
+        Image.fromarray(img, mode="RGBA" if C > 1 else "L").save(outp)
 
 
 def load_image(
@@ -137,4 +145,5 @@ __all__ = [
     "save_image",
     "load_image",
     "compose_image_alpha",
+    "scale_depth",
 ]
