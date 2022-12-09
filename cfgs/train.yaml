@@ -4,7 +4,6 @@ renderer: ???
 trainer: ???
 
 defaults:
-    - data: MISSING # forced to provide
     - volume: standard
     - renderer: standard
     - trainer: standard
