@@ -363,15 +363,20 @@ class ValidationCallback(IntervalTrainingsCallback):
         _logger.info(
             f"Validation pass after {trainer.global_step*trainer.n_rays_batch:,} rays"
         )
-        rgba = trainer.val_renderer.trace_rgba(
+        rgbad = trainer.val_renderer.trace(
             trainer.volume,
             trainer.val_camera,
             use_amp=trainer.use_amp,
             n_rays_parallel=self.n_rays_parallel,
         )
         functional.save_image(
-            rgba,
-            trainer.output_dir / f"img_val_step_{trainer.global_step}.png",
+            rgbad[:, :4],
+            trainer.output_dir / f"img_rgba_val_step_{trainer.global_step}.png",
+            individual=False,
+        )
+        functional.save_image(
+            rgbad[:, 4:5],
+            trainer.output_dir / f"img_depth_val_step_{trainer.global_step}.png",
             individual=False,
         )
 
@@ -379,7 +384,9 @@ class ValidationCallback(IntervalTrainingsCallback):
             val_rgba = trainer.val_camera.load_images()
             if val_rgba.numel() > 0:
                 # TODO how does alpha pixel influence this result?
-                psnr, _ = functional.peak_signal_noise_ratio(rgba, val_rgba, 1.0)
+                psnr, _ = functional.peak_signal_noise_ratio(
+                    rgbad[:, :4], val_rgba, 1.0
+                )
                 trainer.pbar_postfix["psnr[dB]"] = psnr.mean().item()
                 _logger.info(f"psnr[dB]={psnr.mean().item():.2f}")
             else:
