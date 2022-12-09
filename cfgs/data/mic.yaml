@@ -1,0 +1,13 @@
+name: mic
+aabb:
+    _target_: torchngp.io.aabb_from_json
+    path: data/mic/transforms_train.json
+cameras:
+    train_camera:
+        _target_: torchngp.io.cam_from_json
+        path: data/mic/transforms_train.json
+        slice: null
+    val_camera:
+        _target_: torchngp.io.cam_from_json
+        path: data/mic/transforms_val.json
+        slice: "-3:"
