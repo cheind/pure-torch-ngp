@@ -22,11 +22,11 @@ class RadianceField(Protocol):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         ...
 
-    def encode(self, xyz: torch.Tensor) -> torch.Tensor:
+    def encode(self, x: torch.Tensor) -> torch.Tensor:
         """Return features from positions.
 
         Params:
-            xyz_ndc: (N,...,3) normalized device locations [-1,1]
+            x: (N,...,3) normalized device locations [-1,1]
 
         Returns:
             f: (N,...,16) feature values for each sample point

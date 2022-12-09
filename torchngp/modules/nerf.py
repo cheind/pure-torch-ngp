@@ -18,7 +18,7 @@ class NeRF(torch.nn.Module, protocols.RadianceField):
         n_hidden: int = 64,
         n_encodings_log2: int = 16,
         n_levels: int = 16,
-        n_color_cond: int = 16,
+        n_color_cond: int = 15,
         min_res: int = 32,
         max_res: int = 512,
         max_res_dense: int = 256,
@@ -64,20 +64,20 @@ class NeRF(torch.nn.Module, protocols.RadianceField):
 
         # print(sum(param.numel() for param in self.parameters()))
 
-    def encode(self, xyz_ndc: torch.Tensor) -> torch.Tensor:
+    def encode(self, x: torch.Tensor) -> torch.Tensor:
         """Return features from positions.
 
         Params:
-            xyz: (N,...,3) positions in world space
+            x: (N,...,3) positions in NDC [-1,1]
 
         Returns:
             f: (N,...,16) feature values for each sample point
         """
-        batch_shape = xyz_ndc.shape[:-1]
+        batch_shape = x.shape[:-1]
 
         # Compute encoder features and pass them trough density mlp.
-        xn_flat = xyz_ndc.view(-1, 3)
-        h = self.pos_encoder(xn_flat)
+        x_flat = x.view(-1, 3)
+        h = self.pos_encoder(x_flat)
         d = self.density_mlp(h)
 
         return d.view(batch_shape + (16,))
@@ -104,7 +104,7 @@ class NeRF(torch.nn.Module, protocols.RadianceField):
 
         Params:
             f: (N,..., 16) feature values for each sample point
-            cond: (N,...,n_color_cond) conditioning values for each
+            cond: (N,...,n_color_cond_dims) conditioning values for each
                 sample point.
 
         Returns:
@@ -132,7 +132,7 @@ class NeRF(torch.nn.Module, protocols.RadianceField):
         Params:
             xyz_ndc: (N,...,3) sampling positions in normalized device coords
                 [-1,1]
-            color_cond: (N,...,n_cond_color_dims) optional color
+            color_cond: (N,...,n_color_cond_dims) optional color
                 condititioning values
 
         Returns:
