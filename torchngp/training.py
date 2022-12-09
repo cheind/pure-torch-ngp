@@ -389,9 +389,7 @@ class ValidationCallback(IntervalTrainingsCallback):
             val_rgba = trainer.val_camera.load_images()
             if val_rgba.numel() > 0:
                 # TODO how does alpha pixel influence this result?
-                psnr, _ = functional.peak_signal_noise_ratio(
-                    rgbad[:, :4], val_rgba, 1.0
-                )
+                psnr, _ = functional.peak_signal_noise_ratio(rgba, val_rgba, 1.0)
                 trainer.pbar_postfix["psnr[dB]"] = psnr.mean().item()
                 _logger.info(f"psnr[dB]={psnr.mean().item():.2f}")
             else:
