@@ -130,8 +130,6 @@ dmypy.json
 *.blend1
 
 
-data/fox/
-data/lego/
 outputs/
-tmp/*
-!tmp/__keep__
+data/*
+!data/suzanne
