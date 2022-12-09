@@ -90,7 +90,7 @@ def render_task(cfg: DictConfig):
         individual=not cfg.output.grid,
     )
 
-    # python -m torchngp.apps.nerf.render +ckpt=/home/cheind@profactor.local/dev/torch-instant-ngp/outputs/2022-12-01/15-48-06/nerf_step_6143.pth poses.n_poses=10 output.grid=False output.transparent=False
+    # python -m torchngp.apps.nerf.render +ckpt=/home/cheind@profactor.local/dev/torch-instant-ngp/outputs/2022-12-01/15-48-06/nerf_step_6143.pth poses.n_poses=60 output.grid=False output.transparent=False
     # ffmpeg -i /home/cheind@profactor.local/dev/torch-instant-ngp/outputs/2022-12-02/11-44-35/image_%03d.png -vf "fps=10,scale=320:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 10 output.gif
 
 
