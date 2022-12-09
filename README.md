@@ -6,7 +6,7 @@ This repository contains an unofficial implementation of
 > Thomas Müller, Alex Evans, Christoph Schied, Alexander Keller @
 > ACM Transactions on Graphics (SIGGRAPH 2022)
 
-based strictly on PyTorch only functionality.
+based on pure PyTorch functionality.
 
 Currently, the tasks of learning Neural Radiance Fields and approximating Gigapixel images are available. The image below shows three novel viewpoints of a Lego model. The underlying NeRF model was trained on a synthetic dataset for about 2 mins using a _NVIDIA GeForce 3090 Ti_.
 
