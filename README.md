@@ -67,15 +67,22 @@ To render images from a spherical coordinate trajectory execute
 
 ```shell
 python -m torchngp.apps.nerf.render \
-    +ckpt=<path/to/model.pth> \
-    poses.n_poses=10 \
-    output.grid=False \
-    output.transparent=False
+    ckpt=<path/to/model.pth> \
+    poses.n_poses=60 \
+    as_grid=False \
+    rgba_transparent=False \
+    depth_dynamic_range=True
 ```
 
 ## More results
 
+### RGBA
+
 ![](etc/lego.gif)![](etc/chair.gif)![](etc/hotdog.gif)![](etc/mic.gif)
+
+### Depth maps
+
+![](etc/mic_depth.gif)
 
 ## Performance considerations
 
