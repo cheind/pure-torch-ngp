@@ -5,6 +5,7 @@ https://nvlabs.github.io/instant-ngp/assets/mueller2022instant.pdf
 """
 
 from dataclasses import dataclass
+from typing import Callable
 
 import torch
 import torch.nn
@@ -20,6 +21,8 @@ class LevelInfo:
     dense: bool
     hashing: bool
     n_encodings: int
+    fn_forward: Callable[[torch.Tensor, int], torch.Tensor]
+    fn_hash: Callable[[torch.Tensor, tuple[int, ...], int], torch.LongTensor]
 
 
 class MultiLevelHybridHashEncoding(torch.nn.Module):
@@ -98,12 +101,18 @@ class MultiLevelHybridHashEncoding(torch.nn.Module):
 
         for level, res in enumerate(resolutions):
             n_elements = res**self.n_input_dims
+            is_dense = n_elements <= self.max_n_dense
+            is_hashing = n_elements > self.max_n_encodings
+            fn_forward = self._forward_dense if is_dense else self._forward_sparse
+            fn_hash = _hash_xor if is_hashing else _hash_ravel
             li = LevelInfo(
                 res=res,
                 shape=(res,) * self.n_input_dims,
-                dense=n_elements <= self.max_n_dense,
-                hashing=n_elements > self.max_n_encodings,
+                dense=is_dense,
+                hashing=is_hashing,
                 n_encodings=min(n_elements, self.max_n_encodings),
+                fn_forward=fn_forward,
+                fn_hash=fn_hash,
             )
             self.level_infos.append(li)
 
@@ -125,7 +134,6 @@ class MultiLevelHybridHashEncoding(torch.nn.Module):
                     ),
                 )
             else:
-                # Add extra encoding that will attract all locs outside.
                 emb = torch.empty(li.n_encodings, n_embed_dims).uniform_(
                     -init_scale, init_scale
                 )
@@ -146,10 +154,7 @@ class MultiLevelHybridHashEncoding(torch.nn.Module):
         """
         features = []
         for level, li in enumerate(self.level_infos):
-            if li.dense:
-                f = self._forward_dense(x, level)
-            else:
-                f = self._forward_sparse(x, level)
+            f = li.fn_forward(x, level)
             features.append(f)
         f = torch.stack(features, 1)
         return f
@@ -195,25 +200,19 @@ class MultiLevelHybridHashEncoding(torch.nn.Module):
     @torch.no_grad()
     def _compute_dense_indices(self, li: LevelInfo) -> torch.LongTensor:
         index_coords = functional.make_grid(li.shape, indexing="xy")
-        if not li.hashing:
-            ids = _hash_ravel(index_coords, li.shape)
-        else:
-            ids = _hash_xor(index_coords, li.n_encodings)
+        ids = li.fn_hash(index_coords, li.shape, li.n_encodings)
         return ids
 
     @torch.no_grad()
     def _compute_sparse_indices(self, x: torch.Tensor, level: int):
         li = self.level_infos[level]
 
-        # Normalized to pixel [-0.5,R+0.5]
+        # Normalized [-1,1] to pixel [-0.5,R+0.5]
         x = (x + 1) * li.res * 0.5 - 0.5  # (B,C)
         c, w, m = _compute_bilinear_params(x, li.shape)
 
         # Compute indices
-        if li.hashing:
-            ids = _hash_xor(c, li.n_encodings)
-        else:
-            ids = _hash_ravel(c, li.shape)
+        ids = li.fn_hash(c, li.shape, li.n_encodings)
 
         # Point outside elements to the first element, but set
         # all weights zero to simulate zero-padding.
@@ -340,9 +339,11 @@ def _bilinear_params_3d(
     return c, w, m
 
 
-def _hash_xor(x: torch.LongTensor, n_indices: int) -> torch.LongTensor:
+def _hash_xor(
+    x: torch.LongTensor, shape: tuple[int, ...], n_encodings: int
+) -> torch.LongTensor:
     # See https://matthias-research.github.io/pages/publications/tetraederCollision.pdf
-
+    del shape
     dev = x.device
     dtype = x.dtype
     primes = [1, 2654435761, 805459861]
@@ -351,19 +352,23 @@ def _hash_xor(x: torch.LongTensor, n_indices: int) -> torch.LongTensor:
     for i in range(x.shape[-1]):
         ids ^= x[..., i] * primes[i]
 
-    return ids % n_indices
+    return ids % n_encodings
 
 
-def _hash_ravel(x: torch.LongTensor, shape: tuple[int, ...]) -> torch.LongTensor:
+def _hash_ravel(
+    x: torch.LongTensor, shape: tuple[int, ...], n_encodings: int
+) -> torch.LongTensor:
     """Computes linear indices from multi-dimensional indices
 
     Params:
         x: (N,...,d) multi-dimensional indices with dimensions indexed (x,y,z,...,d)
         shape: shape of grid (D,...,H,W)
+        n_encodings: max number of encodings. Unused.
 
     Returns:
         ids: (N,...) flat indices compliant with np.ravel_multi_index with order='F'.
     """
+    del n_encodings
     strides = x.new_tensor(shape[::-1]).cumprod(0).roll(1, 0)
     strides[0] = 1
     return (x * strides.expand_as(x)).sum(-1)
