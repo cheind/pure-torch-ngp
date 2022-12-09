@@ -6,7 +6,7 @@ radiance_field:
     n_hidden: 64
     n_encodings_log2: 18
     n_levels: 16
-    n_color_cond: 16
+    n_color_cond: 15
     min_res: 16
     max_res: 512
     max_res_dense: 256

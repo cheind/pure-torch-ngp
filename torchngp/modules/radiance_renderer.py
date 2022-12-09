@@ -80,10 +80,11 @@ class RadianceRenderer(torch.nn.Module):
         if "color" in which_maps:
             ynm = active_rays.encode_raydir()
             # ynm (N,...,16) -> (T,N,...,16)
+
             ynm = ynm.unsqueeze(0).expand(ts.shape[0], *ynm.shape)
             ts_density, ts_color = vol.sample(
                 xyz,
-                ynm=ynm,
+                ynm=ynm[..., 1:],  # we ignore y00 since it is a constant
                 return_color=True,
             )
         else:
