@@ -166,7 +166,7 @@ class RadianceRenderer(torch.nn.Module):
         }
         return result
 
-    def trace_rgba(
+    def trace(
         self,
         vol: Volume,
         cam: MultiViewCamera,
@@ -174,7 +174,7 @@ class RadianceRenderer(torch.nn.Module):
         use_amp: bool = True,
         n_rays_parallel: int = 2**13,
     ) -> torch.Tensor:
-        """Render RGBA images.
+        """Render images.
 
         This is a high-level routine best used in validation/testing. See
         `trace_maps` for more control.
@@ -187,19 +187,19 @@ class RadianceRenderer(torch.nn.Module):
             n_rays_parallel: maximum number of parallel rays to process
 
         Returns:
-            rgba: (N,4,H,W) batch of images in [0,1] range
+            rgba-d: (N,5,H,W) batch of rgba/depth images in [0,1] range
         """
         with torch.cuda.amp.autocast(enabled=use_amp):
             maps = self.trace_maps(
                 vol,
                 cam,
                 tsampler=tsampler,
-                which_maps={"color", "alpha"},
+                which_maps={"color", "alpha", "depth"},
                 n_rays_parallel=n_rays_parallel,
             )
-            pred_rgba = torch.cat((maps["color"], maps["alpha"]), -1).permute(
-                0, 3, 1, 2
-            )
+            pred_rgba = torch.cat(
+                (maps["color"], maps["alpha"], maps["depth"]), -1
+            ).permute(0, 3, 1, 2)
         return pred_rgba
 
 
