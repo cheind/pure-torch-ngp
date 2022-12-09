@@ -73,6 +73,7 @@ def test_sample_ray_step_stratified_repeated_same_as_once():
         torch.tensor(0.0).view(1, 1).expand(100, 1),
         torch.tensor(1.0).view(1, 1).expand(100, 1),
         n_samples=100,
+        noise_scale=0,
     )
 
     torch.random.manual_seed(123)
@@ -81,6 +82,7 @@ def test_sample_ray_step_stratified_repeated_same_as_once():
             torch.tensor(0.0).view(1, 1).expand(10, 1),
             torch.tensor(1.0).view(1, 1).expand(10, 1),
             n_samples=100,
+            noise_scale=0,
         )
         for _ in range(10)
     ]
