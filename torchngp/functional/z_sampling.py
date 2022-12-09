@@ -2,7 +2,58 @@ import torch
 import torch.distributions as D
 
 
+def batch_linspace(start: torch.Tensor, end: torch.Tensor, n: int):
+    dev = start.device
+    dtype = start.dtype
+    steps = torch.arange(n, dtype=dtype, device=dev) / (n - 1)
+    steps = steps.view(-1, *(1,) * start.ndim)
+    return start[None] + steps * (end - start)[None]
+
+
 def sample_ray_step_stratified(
+    ray_tnear: torch.Tensor,
+    ray_tfar: torch.Tensor,
+    n_samples: int,
+    noise_scale: float = 1.0,
+) -> torch.Tensor:
+    """Creates stratified ray step random samples between tnear/tfar.
+
+    The returned samples per ray are guaranteed to be sorted
+    in step ascending order.
+
+    Params:
+        ray_tnear: (N,...,1) ray start
+        ray_tfar: (N,...,1) ray ends
+        n_bins: number of strata
+
+    Returns:
+        tsamples: (n_samples,N,...,1)
+
+    Based on:
+        NeRF: Representing Scenes as
+        Neural Radiance Fields for View Synthesis
+        https://arxiv.org/pdf/2003.08934.pdf
+        https://en.wikipedia.org/wiki/Stratified_sampling
+    """
+    dev = ray_tnear.device
+    dtype = ray_tnear.dtype
+
+    tnear = ray_tnear.squeeze(-1)  # (N,...)
+    tfar = ray_tfar.squeeze(-1)
+
+    t = torch.linspace(0.0, 1.0, n_samples, dtype=dtype, device=dev)
+    t = t.view(-1, *(1,) * tnear.ndim)  # (T,...)
+    z = tnear[None] * (1.0 - t) + tfar[None] * t  # (T,N,...)
+
+    if noise_scale > 0.0:
+        mid = (z[1:] + z[:-1]) * 0.5
+        lower = torch.cat((z[:1], mid), 0)
+        upper = torch.cat((mid, z[-1:]), 0)
+        z = lower + (upper - lower) * torch.rand_like(z) * noise_scale
+    return z.unsqueeze(-1)
+
+
+def sample_ray_step_stratified2(
     ray_tnear: torch.Tensor, ray_tfar: torch.Tensor, n_samples: int
 ) -> torch.Tensor:
     """Creates stratified ray step random samples between tnear/tfar.
@@ -182,8 +233,13 @@ def sample_ray_step_informed(
     low = low.clamp(0, T - 2)  # we have 1 less piecwise lines than input samples
     low = low.unsqueeze(-1).expand(low.shape + (3,))  # (N,...,n_samples,3)
     uline = torch.gather(lines, dim=-2, index=low)  # (N,...,n_samples,3)
-    t = -(uline[..., 1] * u + uline[..., 2]) / (uline[..., 0])  # (N,...,n_samples)
+    t = -(uline[..., 1] * u + uline[..., 2]) / (
+        uline[..., 0] + eps
+    )  # (N,...,n_samples) TODO: eps probably not fixes everything? sprinkles?
     t = t.clamp(tnear, tfar).movedim(-1, 0).unsqueeze(-1).contiguous()  # (T,N,...,1)
+
+    if torch.isnan(t).any():
+        print("t not finite")
 
     return t
 
@@ -192,4 +248,5 @@ __all__ = [
     "sample_ray_step_stratified",
     "sample_ray_fixed_step_stratified",
     "sample_ray_step_informed",
+    "batch_linspace",
 ]

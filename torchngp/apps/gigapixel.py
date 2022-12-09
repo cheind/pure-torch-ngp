@@ -28,8 +28,6 @@ import torch.nn
 import torch.nn.functional as F
 import torch.optim
 
-from torchngp import functional
-
 from PIL import Image
 from tqdm import tqdm
 

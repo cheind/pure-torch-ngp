@@ -19,11 +19,11 @@ class RadianceRenderer(torch.nn.Module):
     def __init__(
         self,
         tsampler: protocols.RayStepSampler = None,
-        ray_ext_factor: float = 10.0,
+        tfar_scale: float = 1.0,
     ) -> None:
         super().__init__()
-        self.ray_ext_factor = ray_ext_factor
         self.tsampler = tsampler or StratifiedRayStepSampler()
+        self.tfar_scale = tfar_scale
 
     def trace_uv(
         self,
@@ -71,7 +71,7 @@ class RadianceRenderer(torch.nn.Module):
             return result
 
         # Sample along rays
-        ts = tsampler(active_rays)
+        ts = tsampler(active_rays, vol=vol)
 
         # Evaluate ray locations
         xyz = active_rays(ts)
@@ -94,11 +94,12 @@ class RadianceRenderer(torch.nn.Module):
             )
 
         # Compute integration weights
+
         ts_weights = functional.integrate_timesteps(
             ts_density,
             ts,
             active_rays.dnorm,
-            tfinal=active_rays.tfar * self.ray_ext_factor,
+            tfinal=active_rays.tfar * self.tfar_scale,
         )
 
         # Compute result maps
