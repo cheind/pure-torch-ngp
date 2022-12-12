@@ -1,6 +1,6 @@
 # pure-torch-ngp
 
-This repository contains an unofficial implementation of
+This repository provides an unofficial implementation of
 
 > "Instant Neural Graphics Primitives with a Multiresolution Hash Encoding" by
 > Thomas Müller, Alex Evans, Christoph Schied, Alexander Keller @
@@ -8,22 +8,21 @@ This repository contains an unofficial implementation of
 
 based on pure PyTorch functionality.
 
-Currently, the tasks of learning Neural Radiance Fields and approximating Gigapixel images are available. The image below shows three novel viewpoints of a Lego model. The underlying NeRF model was trained on a synthetic dataset for about 2 mins using a _NVIDIA GeForce 3090 Ti_.
+Currently, the tasks of learning Neural Radiance Fields and approximating Gigapixel images are available. The image below shows three novel viewpoints of a synthetic Lego model. The underlying NeRF model was trained on 100 images for about 2 mins using a NVIDIA GeForce 3090 Ti.
 
 ![](etc/lego_val.png?raw=true)
 
 ## NeRF Features
 
--   Support for multi-level hash encodings using a hybrid dense/sparse approach
--   Support for loading `transforms.json` scene file format
--   Support for alpha channels in RGBA input images
--   Support for training with dynamic noise backgrounds to encourage zero density learning
--   Added functionality to render scene setup
--   Added functionality to render novel viewpoints
--   Added volume rasterization and export
--   Added (unfinished) script to raytrace exported volume
+-   Multi-Level hash encodings using a hybrid dense/sparse approach
+-   Training with dynamic noise backgrounds to encourage zero density learning for scenes with transparency
+-   Occupancy grid acceleration structure to speed up ray marching
+-   Generation of `Alpha`, `RGB` and `Depth` maps
+-   Model export, volume rasterization and scene setup rendering
 
-## Blender Features
+## Blender Synth Gen Features
+
+This repository comes with Scripts to facilitate the generation of synthetic scenes through Blender. In particular the scripts perform the following tasks
 
 -   Automatically generate camera views for scene
 -   Export scene to `transforms.json` for NeRF training
