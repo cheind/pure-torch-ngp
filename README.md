@@ -83,6 +83,8 @@ python -m torchngp.apps.nerf.render \
 
 ![](etc/mic_depth.gif)
 
+Darker is closer, black marks invalid depth.
+
 ## Performance considerations
 
 This implementation is roughly an order of magnitude slower than the original implementation. That is, it takes a minute what takes the original implementation only a few seconds. Furthermore, the PSNR values achieved lag behind those of the original work (e.g LEGO 35dB vs. 28dB using this implementation).
